@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# --- Entornos virtuales ---
+.venv/
+venv/
+env/
+
+# --- Herramientas ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Datos (no se versionan) ---
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# --- Pesos de modelos ---
+*.pt
+*.onnx
+*.engine
+*.pth
+
+# --- Sistema operativo / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
