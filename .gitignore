@@ -36,3 +36,6 @@ data/processed/*
 Thumbs.db
 .idea/
 .vscode/
+
+# --- Instrucciones locales del agente ---
+/AGENTS.md
