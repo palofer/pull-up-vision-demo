@@ -11,7 +11,11 @@ from angles import (
     guardar_csv_angulos,
     guardar_csv_repeticiones,
 )
-from visual import guardar_grafica_angulos, guardar_video_anotado
+from visual import (
+    guardar_grafica_angulos,
+    guardar_grafica_hombros,
+    guardar_interfaz,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 VIDEO_POR_DEFECTO = ROOT / "data/raw/dominadas-video-optimizado.mp4"
@@ -63,7 +67,8 @@ def ejecutar(
         "angulos": salida / f"{video.stem}-elbow-angles.csv",
         "repeticiones": salida / f"{video.stem}-repeticiones.csv",
         "grafica": salida / f"{video.stem}-elbow-angles.png",
-        "video_anotado": salida / f"{video.stem}-anotado.mp4",
+        "hombros": salida / f"{video.stem}-shoulder-position.png",
+        "interfaz": salida / f"{video.stem}-interfaz.mp4",
     }
 
     datos = []
@@ -81,7 +86,8 @@ def ejecutar(
     repeticiones = detectar_repeticiones(angulos)
     guardar_csv_repeticiones(repeticiones, rutas["repeticiones"])
     guardar_grafica_angulos(angulos, video, salida)
-    guardar_video_anotado(video, rutas["keypoints"], angulos, repeticiones, rutas["video_anotado"])
+    guardar_grafica_hombros(angulos, rutas["keypoints"], video, salida)
+    guardar_interfaz(video, rutas["keypoints"], angulos, repeticiones, rutas["interfaz"])
     return datos, angulos, repeticiones, rutas
 
 
