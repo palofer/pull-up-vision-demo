@@ -8,7 +8,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 
 - Vídeos, resultados y documentos usan **kebab-case**: minúsculas y palabras separadas por guiones. Ejemplos: `dominadas-video-optimizado.mp4`, `project-requirements.md`.
 - Los módulos Python usan nombres importables en minúsculas: `main.py`, `angles.py` y `visual.py`.
-- Los resultados derivados se guardan en `data/processed/`; los vídeos de entrada permanecen en `data/raw/` y no se versionan.
+- Los resultados derivados se guardan en `data/processed/<video>/`: una carpeta por vídeo de entrada, con artefactos de nombre simple (`keypoints.csv`, `elbow-angles.png`…). Los vídeos de entrada permanecen en `data/raw/` y no se versionan.
 
 ## Estado actual
 

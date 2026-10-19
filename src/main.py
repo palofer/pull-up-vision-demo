@@ -60,15 +60,15 @@ def ejecutar(
         raise FileNotFoundError(video)
     pesos = Path(pesos).expanduser()
     modelo = YOLO(str(pesos if pesos.is_file() else "yolo11s-pose.pt"))
-    salida = ROOT / "data/processed" / pesos.stem
+    salida = ROOT / "data/processed" / video.stem
     salida.mkdir(parents=True, exist_ok=True)
     rutas = {
-        "keypoints": salida / f"{video.stem}-keypoints.csv",
-        "angulos": salida / f"{video.stem}-elbow-angles.csv",
-        "repeticiones": salida / f"{video.stem}-repeticiones.csv",
-        "grafica": salida / f"{video.stem}-elbow-angles.png",
-        "hombros": salida / f"{video.stem}-shoulder-position.png",
-        "interfaz": salida / f"{video.stem}-interfaz.mp4",
+        "keypoints": salida / "keypoints.csv",
+        "angulos": salida / "elbow-angles.csv",
+        "repeticiones": salida / "repeticiones.csv",
+        "grafica": salida / "elbow-angles.png",
+        "hombros": salida / "shoulder-position.png",
+        "interfaz": salida / "interfaz.mp4",
     }
 
     datos = []

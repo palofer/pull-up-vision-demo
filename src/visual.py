@@ -34,7 +34,7 @@ def guardar_grafica_angulos(angulos: list[dict], video: Path, salida: Path) -> P
     ax.grid(True, alpha=0.3)
     ax.legend()
     fig.tight_layout()
-    ruta = salida / f"{video.stem}-elbow-angles.png"
+    ruta = salida / "elbow-angles.png"
     fig.savefig(ruta, dpi=150)
     plt.close(fig)
     return ruta
@@ -90,7 +90,7 @@ def guardar_grafica_hombros(
     ax_dif.grid(True, alpha=0.3)
     ax_dif.legend()
     fig.tight_layout()
-    ruta = salida / f"{video.stem}-shoulder-position.png"
+    ruta = salida / "shoulder-position.png"
     fig.savefig(ruta, dpi=150)
     plt.close(fig)
     return ruta
