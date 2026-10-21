@@ -458,7 +458,6 @@ def guardar_interfaz(
     ax.set_facecolor("#1a1a1a")
     linea_izq, = ax.plot([], [], color="#2680eb", linewidth=2, label="Left elbow")
     linea_der, = ax.plot([], [], color="#ff8c32", linewidth=2, label="Right elbow")
-    ax.axhline(y=55, color="#64cf85", linestyle="--", linewidth=1, alpha=0.8)
     ax.axhline(y=150, color="#888888", linestyle="--", linewidth=1, alpha=0.8)
     ax.set(
         xlabel="Time (s)", ylabel="Elbow angle (°)", ylim=(180, 0),

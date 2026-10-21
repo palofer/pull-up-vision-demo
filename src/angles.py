@@ -40,13 +40,35 @@ def calcular_angulos_codos(
     return angulos
 
 
+def calcular_holgura_cabeza(
+    datos: list[dict], umbral_confianza: float = 0.3
+) -> dict[int, float]:
+    """Holgura cabeza–muñecas por fotograma (positivo = cabeza sobre las muñecas)."""
+    holgura: dict[int, float] = {}
+    for frame in datos:
+        if frame["xy"].shape[0] == 0:
+            continue
+        persona = int(np.argmax(frame["person_conf"]))
+        xy, conf = frame["xy"][persona], frame["conf"][persona]
+        orejas = [xy[i] for i in (3, 4) if conf[i] >= umbral_confianza]
+        munecas = [xy[i] for i in (9, 10) if conf[i] >= umbral_confianza]
+        if not orejas or not munecas:
+            continue
+        y_orejas = float(np.mean([p[1] for p in orejas]))
+        y_munecas = float(np.mean([p[1] for p in munecas]))
+        holgura[int(frame["frame"])] = y_munecas - y_orejas
+    return holgura
+
+
 def detectar_repeticiones(
     angulos: list[dict],
-    umbral_flexion: float = 55.0,
+    datos: list[dict],
+    umbral_holgura: float = 20.0,
     umbral_extension: float = 150.0,
     umbral_inicio: float = 130.0,
 ) -> list[dict]:
-    """Clasifica ciclos como completos o parciales con umbrales exploratorios."""
+    """Detecta ciclos por codos y los clasifica por holgura cabeza–muñecas."""
+    holgura = calcular_holgura_cabeza(datos)
     repeticiones = []
     actual = None
     ultimo_frame = None
@@ -64,7 +86,6 @@ def detectar_repeticiones(
                 "angulo_min_der": der,
                 "mejor_max": max(izq, der),
                 "tope_frame": frame,
-                "llego_arriba": False,
             }
         if actual is None:
             continue
@@ -73,16 +94,26 @@ def detectar_repeticiones(
         if max(izq, der) < actual["mejor_max"]:
             actual["mejor_max"] = max(izq, der)
             actual["tope_frame"] = frame
-        if izq <= umbral_flexion and der <= umbral_flexion:
-            actual["llego_arriba"] = True
         ultimo_frame = frame
         if extendido:
             actual["fin_frame"] = frame
-            actual["estado"] = "completa" if actual["llego_arriba"] else "parcial"
+            holgura_ciclo = [
+                holgura[f] for f in range(actual["inicio_frame"], frame + 1) if f in holgura
+            ]
+            actual["holgura_max"] = max(holgura_ciclo) if holgura_ciclo else None
+            actual["estado"] = (
+                "completa"
+                if actual["holgura_max"] is not None and actual["holgura_max"] >= umbral_holgura
+                else "parcial"
+            )
             repeticiones.append(actual)
             actual = None
     if actual is not None:
         actual["fin_frame"] = ultimo_frame
+        holgura_ciclo = [
+            holgura[f] for f in range(actual["inicio_frame"], ultimo_frame + 1) if f in holgura
+        ]
+        actual["holgura_max"] = max(holgura_ciclo) if holgura_ciclo else None
         actual["estado"] = "sin retorno a extensión"
         repeticiones.append(actual)
     return repeticiones
@@ -102,17 +133,19 @@ def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
 def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
     columnas = [
         "inicio_frame", "tope_frame", "fin_frame", "angulo_min_izq",
-        "angulo_min_der", "estado",
+        "angulo_min_der", "holgura_max", "estado",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
         writer = csv.DictWriter(archivo, fieldnames=columnas)
         writer.writeheader()
         for rep in repeticiones:
+            holgura = rep.get("holgura_max")
             writer.writerow({
                 "inicio_frame": rep["inicio_frame"],
                 "tope_frame": rep["tope_frame"],
                 "fin_frame": rep["fin_frame"],
                 "angulo_min_izq": round(rep["angulo_min_izq"], 1),
                 "angulo_min_der": round(rep["angulo_min_der"], 1),
+                "holgura_max": round(holgura, 1) if holgura is not None else "",
                 "estado": rep["estado"],
             })

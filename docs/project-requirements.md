@@ -13,7 +13,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 ## Estado actual
 
 - El flujo usa YOLO-pose para analizar fotogramas y exporta keypoints a CSV.
-- Calcula ángulos de codo y clasifica ciclos como completos o parciales mediante umbrales configurables en las funciones.
+- Calcula ángulos de codo y posiciones de hombros como datos de técnica/asimetría, y clasifica cada ciclo como completo o parcial mediante la holgura cabeza–muñecas (criterio independiente del agarre).
 - Genera una interfaz de vídeo con keypoints 5–16, una gráfica de ángulos y un contador que avanza al terminar cada repetición.
 - La interfaz recorta las bandas negras laterales detectadas en el vídeo de entrada.
 - La configuración de dependencias usa `uv`, `pyproject.toml` y `uv.lock`.
@@ -21,6 +21,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 ## Requisitos de biomecánica
 
 - [x] Calcular el ángulo del codo usando hombro, codo y muñeca.
+- [x] Usar la holgura cabeza–muñecas (máxima del ciclo ≥ 20 px) como criterio de completa/parcial, independiente del agarre; los ángulos de codo se conservan solo como dato de técnica.
 - [ ] Usar `atan2` para el cálculo angular. Actualmente se usa producto escalar y `arccos`.
 - [ ] Expresar el rango de movimiento (ROM) como porcentaje, además de la clasificación completa/parcial.
 - [~] Graficar la diferencia vertical entre hombros; falta definir y validar el umbral de alerta.

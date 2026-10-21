@@ -18,20 +18,39 @@ from visual import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-VIDEO_POR_DEFECTO = ROOT / "data/raw/dominadas-video-optimizado.mp4"
+VIDEO_POR_DEFECTO = ROOT / "data/raw/video-dominadas-javi-sierra-optimizado.mp4"
 PESOS_POR_DEFECTO = ROOT / "notebooks/yolo11s-pose.pt"
 
 
 def guardar_csv_keypoints(datos: list[dict], ruta: Path) -> None:
     nombres = {
-        0: "nariz", 1: "ojo_izq", 2: "ojo_der", 3: "oreja_izq", 4: "oreja_der",
-        5: "hombro_izq", 6: "hombro_der", 7: "codo_izq", 8: "codo_der",
-        9: "muneca_izq", 10: "muneca_der", 11: "cadera_izq", 12: "cadera_der",
-        13: "rodilla_izq", 14: "rodilla_der", 15: "tobillo_izq", 16: "tobillo_der",
+        0: "nariz",
+        1: "ojo_izq",
+        2: "ojo_der",
+        3: "oreja_izq",
+        4: "oreja_der",
+        5: "hombro_izq",
+        6: "hombro_der",
+        7: "codo_izq",
+        8: "codo_der",
+        9: "muneca_izq",
+        10: "muneca_der",
+        11: "cadera_izq",
+        12: "cadera_der",
+        13: "rodilla_izq",
+        14: "rodilla_der",
+        15: "tobillo_izq",
+        16: "tobillo_der",
     }
     columnas = [
-        "frame", "person_idx", "keypoint_idx", "keypoint", "x_px", "y_px",
-        "keypoint_conf", "person_conf",
+        "frame",
+        "person_idx",
+        "keypoint_idx",
+        "keypoint",
+        "x_px",
+        "y_px",
+        "keypoint_conf",
+        "person_conf",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
         writer = csv.DictWriter(archivo, fieldnames=columnas)
@@ -41,14 +60,18 @@ def guardar_csv_keypoints(datos: list[dict], ruta: Path) -> None:
                 for indice, (xy, confianza) in enumerate(
                     zip(keypoints, frame["conf"][persona], strict=True)
                 ):
-                    writer.writerow({
-                        "frame": frame["frame"], "person_idx": persona,
-                        "keypoint_idx": indice,
-                        "keypoint": nombres.get(indice, f"keypoint_{indice}"),
-                        "x_px": float(xy[0]), "y_px": float(xy[1]),
-                        "keypoint_conf": float(confianza),
-                        "person_conf": float(frame["person_conf"][persona]),
-                    })
+                    writer.writerow(
+                        {
+                            "frame": frame["frame"],
+                            "person_idx": persona,
+                            "keypoint_idx": indice,
+                            "keypoint": nombres.get(indice, f"keypoint_{indice}"),
+                            "x_px": float(xy[0]),
+                            "y_px": float(xy[1]),
+                            "keypoint_conf": float(confianza),
+                            "person_conf": float(frame["person_conf"][persona]),
+                        }
+                    )
 
 
 def ejecutar(
@@ -74,16 +97,18 @@ def ejecutar(
     datos = []
     for frame_idx, resultado in enumerate(modelo(str(video), stream=True, verbose=False)):
         pose = resultado.keypoints
-        datos.append({
-            "frame": frame_idx,
-            "xy": pose.xy.cpu().numpy(),
-            "conf": pose.conf.cpu().numpy(),
-            "person_conf": resultado.boxes.conf.cpu().numpy(),
-        })
+        datos.append(
+            {
+                "frame": frame_idx,
+                "xy": pose.xy.cpu().numpy(),
+                "conf": pose.conf.cpu().numpy(),
+                "person_conf": resultado.boxes.conf.cpu().numpy(),
+            }
+        )
     guardar_csv_keypoints(datos, rutas["keypoints"])
     angulos = calcular_angulos_codos(datos)
     guardar_csv_angulos(angulos, rutas["angulos"])
-    repeticiones = detectar_repeticiones(angulos)
+    repeticiones = detectar_repeticiones(angulos, datos)
     guardar_csv_repeticiones(repeticiones, rutas["repeticiones"])
     guardar_grafica_angulos(angulos, video, salida)
     guardar_grafica_hombros(angulos, rutas["keypoints"], video, salida)
