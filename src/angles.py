@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+UMBRAL_HOLGURA: float = 20.0
 ROM_ANGULO_EXTENSION_REFERENCIA: float = 180.0
 ROM_ANGULO_FLEXION_REFERENCIA: float = 55.0
 UMBRAL_EXTENSION_CICLO: float = 150.0
@@ -21,9 +22,7 @@ def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None
     return float(np.degrees(np.arctan2(abs(producto_cruzado), producto_escalar)))
 
 
-def calcular_angulos_codos(
-    datos: list[dict], umbral_confianza: float = 0.5
-) -> list[dict]:
+def calcular_angulos_codos(datos: list[dict], umbral_confianza: float = 0.5) -> list[dict]:
     """Calcula ambos codos por fotograma, usando a la persona más confiable."""
     angulos = []
     lados = [("left", 5, 7, 9), ("right", 6, 8, 10)]
@@ -44,9 +43,7 @@ def calcular_angulos_codos(
     return angulos
 
 
-def calcular_holgura_cabeza(
-    datos: list[dict], umbral_confianza: float = 0.3
-) -> dict[int, float]:
+def calcular_holgura_cabeza(datos: list[dict], umbral_confianza: float = 0.3) -> dict[int, float]:
     """Holgura cabeza–muñecas por fotograma (positivo = cabeza sobre las muñecas)."""
     holgura: dict[int, float] = {}
     for frame in datos:
@@ -176,8 +173,12 @@ def agregar_metricas_repeticiones(
 
 def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
     columnas = [
-        "frame", "person_idx", "left_elbow_deg", "left_min_conf",
-        "right_elbow_deg", "right_min_conf",
+        "frame",
+        "person_idx",
+        "left_elbow_deg",
+        "left_min_conf",
+        "right_elbow_deg",
+        "right_min_conf",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
         writer = csv.DictWriter(archivo, fieldnames=columnas)
@@ -187,37 +188,48 @@ def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
 
 def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
     columnas = [
-        "inicio_frame", "inicio_fase_frame", "tope_frame", "fin_frame", "angulo_min_izq",
-        "angulo_min_der", "holgura_max", "estado", "rom_pct",
-        "rom_izq_pct", "rom_der_pct",
-        "tiempo_subida_s", "tiempo_bajada_s",
+        "inicio_frame",
+        "inicio_fase_frame",
+        "tope_frame",
+        "fin_frame",
+        "angulo_min_izq",
+        "angulo_min_der",
+        "holgura_max",
+        "estado",
+        "rom_pct",
+        "rom_izq_pct",
+        "rom_der_pct",
+        "tiempo_subida_s",
+        "tiempo_bajada_s",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
         writer = csv.DictWriter(archivo, fieldnames=columnas)
         writer.writeheader()
         for rep in repeticiones:
             holgura = rep.get("holgura_max")
-            writer.writerow({
-                "inicio_frame": rep["inicio_frame"],
-                "inicio_fase_frame": rep.get("inicio_fase_frame", rep["inicio_frame"]),
-                "tope_frame": rep["tope_frame"],
-                "fin_frame": rep["fin_frame"],
-                "angulo_min_izq": round(rep["angulo_min_izq"], 1),
-                "angulo_min_der": round(rep["angulo_min_der"], 1),
-                "holgura_max": round(holgura, 1) if holgura is not None else "",
-                "estado": rep["estado"],
-                "rom_pct": round(rep["rom_pct"], 1) if rep["rom_pct"] != "" else "",
-                "rom_izq_pct": (
-                    round(rep["rom_izq_pct"], 1) if rep["rom_izq_pct"] != "" else ""
-                ),
-                "rom_der_pct": (
-                    round(rep["rom_der_pct"], 1) if rep["rom_der_pct"] != "" else ""
-                ),
-                "tiempo_subida_s": round(rep["tiempo_subida_s"], 2),
-                "tiempo_bajada_s": (
-                    round(rep["tiempo_bajada_s"], 2) if rep["tiempo_bajada_s"] != "" else ""
-                ),
-            })
+            writer.writerow(
+                {
+                    "inicio_frame": rep["inicio_frame"],
+                    "inicio_fase_frame": rep.get("inicio_fase_frame", rep["inicio_frame"]),
+                    "tope_frame": rep["tope_frame"],
+                    "fin_frame": rep["fin_frame"],
+                    "angulo_min_izq": round(rep["angulo_min_izq"], 1),
+                    "angulo_min_der": round(rep["angulo_min_der"], 1),
+                    "holgura_max": round(holgura, 1) if holgura is not None else "",
+                    "estado": rep["estado"],
+                    "rom_pct": round(rep["rom_pct"], 1) if rep["rom_pct"] != "" else "",
+                    "rom_izq_pct": (
+                        round(rep["rom_izq_pct"], 1) if rep["rom_izq_pct"] != "" else ""
+                    ),
+                    "rom_der_pct": (
+                        round(rep["rom_der_pct"], 1) if rep["rom_der_pct"] != "" else ""
+                    ),
+                    "tiempo_subida_s": round(rep["tiempo_subida_s"], 2),
+                    "tiempo_bajada_s": (
+                        round(rep["tiempo_bajada_s"], 2) if rep["tiempo_bajada_s"] != "" else ""
+                    ),
+                }
+            )
 
 
 def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> None:
@@ -231,9 +243,7 @@ def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> Non
     ]
 
     def promedio(campo: str, decimales: int) -> float | str:
-        valores = [
-            rep[campo] for rep in repeticiones_con_retorno if rep.get(campo, "") != ""
-        ]
+        valores = [rep[campo] for rep in repeticiones_con_retorno if rep.get(campo, "") != ""]
         return round(sum(valores) / len(valores), decimales) if valores else ""
 
     columnas = [
