@@ -7,6 +7,7 @@ import numpy as np
 
 ROM_ANGULO_EXTENSION_REFERENCIA: float = 180.0
 ROM_ANGULO_FLEXION_REFERENCIA: float = 55.0
+UMBRAL_EXTENSION_CICLO: float = 150.0
 
 
 def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
@@ -67,7 +68,7 @@ def detectar_repeticiones(
     angulos: list[dict],
     datos: list[dict],
     umbral_holgura: float = 20.0,
-    umbral_extension: float = 150.0,
+    umbral_extension: float = UMBRAL_EXTENSION_CICLO,
     umbral_inicio: float = 130.0,
 ) -> list[dict]:
     """Detecta ciclos por codos y los clasifica por holgura cabeza–muñecas."""
@@ -75,6 +76,7 @@ def detectar_repeticiones(
     repeticiones = []
     actual = None
     ultimo_frame = None
+    ultimo_frame_extendido = None
     for fila in angulos:
         frame = int(fila["frame"])
         if fila.get("left_elbow_deg", "") == "" or fila.get("right_elbow_deg", "") == "":
@@ -82,9 +84,14 @@ def detectar_repeticiones(
         izq, der = float(fila["left_elbow_deg"]), float(fila["right_elbow_deg"])
         extendido = izq >= umbral_extension and der >= umbral_extension
         inicio = min(izq, der) <= umbral_inicio
+        if actual is None and extendido:
+            ultimo_frame_extendido = frame
         if actual is None and not extendido and inicio:
             actual = {
                 "inicio_frame": frame,
+                "inicio_fase_frame": (
+                    ultimo_frame_extendido if ultimo_frame_extendido is not None else frame
+                ),
                 "angulo_min_izq": izq,
                 "angulo_min_der": der,
                 "mejor_max": max(izq, der),
@@ -111,6 +118,7 @@ def detectar_repeticiones(
             )
             repeticiones.append(actual)
             actual = None
+            ultimo_frame_extendido = frame
     if actual is not None:
         actual["fin_frame"] = ultimo_frame
         holgura_ciclo = [
@@ -132,7 +140,8 @@ def agregar_metricas_repeticiones(
     rango_referencia = ROM_ANGULO_EXTENSION_REFERENCIA - ROM_ANGULO_FLEXION_REFERENCIA
     enriquecidas = []
     for repeticion in repeticiones:
-        inicio, fin = int(repeticion["inicio_frame"]), int(repeticion["fin_frame"])
+        inicio = int(repeticion.get("inicio_fase_frame", repeticion["inicio_frame"]))
+        fin = int(repeticion["fin_frame"])
         filas_ciclo = [fila for fila in angulos if inicio <= int(fila["frame"]) <= fin]
         rom_por_lado = []
         for lado in ("left", "right"):
@@ -174,7 +183,7 @@ def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
 
 def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
     columnas = [
-        "inicio_frame", "tope_frame", "fin_frame", "angulo_min_izq",
+        "inicio_frame", "inicio_fase_frame", "tope_frame", "fin_frame", "angulo_min_izq",
         "angulo_min_der", "holgura_max", "estado", "rom_pct",
         "tiempo_subida_s", "tiempo_bajada_s",
     ]
@@ -185,6 +194,7 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
             holgura = rep.get("holgura_max")
             writer.writerow({
                 "inicio_frame": rep["inicio_frame"],
+                "inicio_fase_frame": rep.get("inicio_fase_frame", rep["inicio_frame"]),
                 "tope_frame": rep["tope_frame"],
                 "fin_frame": rep["fin_frame"],
                 "angulo_min_izq": round(rep["angulo_min_izq"], 1),
@@ -205,10 +215,14 @@ def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> Non
     por_estado = {
         estado: sum(rep["estado"] == estado for rep in repeticiones) for estado in estados
     }
-    validas = [rep for rep in repeticiones if rep["estado"] in ("completa", "parcial")]
+    repeticiones_con_retorno = [
+        rep for rep in repeticiones if rep["estado"] in ("completa", "parcial")
+    ]
 
     def promedio(campo: str, decimales: int) -> float | str:
-        valores = [rep[campo] for rep in validas if rep.get(campo, "") != ""]
+        valores = [
+            rep[campo] for rep in repeticiones_con_retorno if rep.get(campo, "") != ""
+        ]
         return round(sum(valores) / len(valores), decimales) if valores else ""
 
     columnas = [
