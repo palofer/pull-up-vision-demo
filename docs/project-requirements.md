@@ -23,9 +23,9 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 - [x] Calcular el ángulo del codo usando hombro, codo y muñeca.
 - [x] Usar la holgura cabeza–muñecas (máxima del ciclo ≥ 20 px) como criterio de completa/parcial, independiente del agarre; los ángulos de codo se conservan solo como dato de técnica.
 - [x] Usar `atan2` para el cálculo angular.
-- [ ] Expresar el rango de movimiento (ROM) como porcentaje, además de la clasificación completa/parcial.
+- [x] Expresar el rango de movimiento (ROM) como porcentaje, además de la clasificación completa/parcial; usar 180°–55° como referencia provisional, sin limitar el resultado a 100 %.
 - [~] Graficar la diferencia vertical entre hombros; falta definir y validar el umbral de alerta.
-- [ ] Exportar por separado el tiempo de subida (fase concéntrica) y bajada (fase excéntrica).
+- [x] Exportar por separado el tiempo de subida (fase concéntrica) y bajada (fase excéntrica).
 - [ ] Validar los umbrales con varios vídeos etiquetados manualmente; los valores actuales son experimentales, no estándares universales.
 
 ## Arquitectura y calidad del código
@@ -46,7 +46,8 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 ## Exportación e interfaz
 
 - [x] Exportar keypoints, ángulos y clasificación de cada repetición a CSV.
-- [ ] Exportar un resumen agregado con repeticiones, ROM porcentual, tempo y alertas de asimetría.
+- [x] Exportar un resumen agregado con recuentos de repeticiones, ROM porcentual y tempo.
+- [ ] Exportar alertas de asimetría tras definir y validar el umbral.
 - [x] Mostrar un HUD sin cajas delimitadoras, con líneas entre articulaciones y un panel lateral oscuro.
 - [x] Actualizar el contador conforme terminan las repeticiones, sin mostrar resultados futuros durante la reproducción.
 - [ ] Verificar legibilidad y rendimiento de la interfaz en vídeos de distintas resoluciones y orientaciones.

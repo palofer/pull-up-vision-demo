@@ -3,13 +3,16 @@
 import csv
 from pathlib import Path
 
+import cv2
 from ultralytics import YOLO
 
 from angles import (
+    agregar_metricas_repeticiones,
     calcular_angulos_codos,
     detectar_repeticiones,
     guardar_csv_angulos,
     guardar_csv_repeticiones,
+    guardar_csv_resumen,
 )
 from visual import (
     guardar_grafica_angulos,
@@ -20,6 +23,17 @@ from visual import (
 ROOT = Path(__file__).resolve().parents[1]
 VIDEO_POR_DEFECTO = ROOT / "data/raw/video-dominadas-javi-sierra-optimizado.mp4"
 PESOS_POR_DEFECTO = ROOT / "notebooks/yolo11s-pose.pt"
+
+
+def obtener_fps(video: Path) -> float:
+    captura = cv2.VideoCapture(str(video))
+    try:
+        fps = float(captura.get(cv2.CAP_PROP_FPS))
+        if not captura.isOpened() or fps <= 0:
+            raise ValueError("No se pudieron leer los FPS del vídeo")
+        return fps
+    finally:
+        captura.release()
 
 
 def guardar_csv_keypoints(datos: list[dict], ruta: Path) -> None:
@@ -81,6 +95,7 @@ def ejecutar(
     video = Path(video).expanduser().resolve()
     if not video.is_file():
         raise FileNotFoundError(video)
+    fps = obtener_fps(video)
     pesos = Path(pesos).expanduser()
     modelo = YOLO(str(pesos if pesos.is_file() else "yolo11s-pose.pt"))
     salida = ROOT / "data/processed" / video.stem
@@ -89,6 +104,7 @@ def ejecutar(
         "keypoints": salida / "keypoints.csv",
         "angulos": salida / "elbow-angles.csv",
         "repeticiones": salida / "repeticiones.csv",
+        "resumen": salida / "resumen.csv",
         "grafica": salida / "elbow-angles.png",
         "hombros": salida / "shoulder-position.png",
         "interfaz": salida / "interfaz.mp4",
@@ -109,7 +125,9 @@ def ejecutar(
     angulos = calcular_angulos_codos(datos)
     guardar_csv_angulos(angulos, rutas["angulos"])
     repeticiones = detectar_repeticiones(angulos, datos)
+    repeticiones = agregar_metricas_repeticiones(repeticiones, angulos, fps)
     guardar_csv_repeticiones(repeticiones, rutas["repeticiones"])
+    guardar_csv_resumen(repeticiones, video.name, rutas["resumen"])
     guardar_grafica_angulos(angulos, video, salida)
     guardar_grafica_hombros(angulos, rutas["keypoints"], video, salida)
     guardar_interfaz(video, rutas["keypoints"], angulos, repeticiones, rutas["interfaz"])

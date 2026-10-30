@@ -5,6 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
+ROM_ANGULO_EXTENSION_REFERENCIA: float = 180.0
+ROM_ANGULO_FLEXION_REFERENCIA: float = 55.0
+
 
 def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
     """Devuelve el ángulo ABC en grados; 180° corresponde a una línea recta."""
@@ -119,6 +122,45 @@ def detectar_repeticiones(
     return repeticiones
 
 
+def agregar_metricas_repeticiones(
+    repeticiones: list[dict], angulos: list[dict], fps: float
+) -> list[dict]:
+    """Añade ROM porcentual y tiempos de subida/bajada a cada ciclo detectado."""
+    if fps <= 0:
+        raise ValueError("Los FPS deben ser mayores que cero")
+
+    rango_referencia = ROM_ANGULO_EXTENSION_REFERENCIA - ROM_ANGULO_FLEXION_REFERENCIA
+    enriquecidas = []
+    for repeticion in repeticiones:
+        inicio, fin = int(repeticion["inicio_frame"]), int(repeticion["fin_frame"])
+        filas_ciclo = [fila for fila in angulos if inicio <= int(fila["frame"]) <= fin]
+        rom_por_lado = []
+        for lado in ("left", "right"):
+            valores = [
+                float(fila[f"{lado}_elbow_deg"])
+                for fila in filas_ciclo
+                if fila.get(f"{lado}_elbow_deg", "") != ""
+            ]
+            if valores:
+                rom_por_lado.append((max(valores) - min(valores)) / rango_referencia * 100)
+
+        rom_pct = sum(rom_por_lado) / 2 if len(rom_por_lado) == 2 else ""
+        inicio_tope = (int(repeticion["tope_frame"]) - inicio) / fps
+        fin_tope = (fin - int(repeticion["tope_frame"])) / fps
+        enriquecida = dict(repeticion)
+        enriquecida.update(
+            {
+                "rom_pct": rom_pct,
+                "tiempo_subida_s": inicio_tope,
+                "tiempo_bajada_s": (
+                    "" if repeticion["estado"] == "sin retorno a extensión" else fin_tope
+                ),
+            }
+        )
+        enriquecidas.append(enriquecida)
+    return enriquecidas
+
+
 def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
     columnas = [
         "frame", "person_idx", "left_elbow_deg", "left_min_conf",
@@ -133,7 +175,8 @@ def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
 def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
     columnas = [
         "inicio_frame", "tope_frame", "fin_frame", "angulo_min_izq",
-        "angulo_min_der", "holgura_max", "estado",
+        "angulo_min_der", "holgura_max", "estado", "rom_pct",
+        "tiempo_subida_s", "tiempo_bajada_s",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
         writer = csv.DictWriter(archivo, fieldnames=columnas)
@@ -148,4 +191,48 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
                 "angulo_min_der": round(rep["angulo_min_der"], 1),
                 "holgura_max": round(holgura, 1) if holgura is not None else "",
                 "estado": rep["estado"],
+                "rom_pct": round(rep["rom_pct"], 1) if rep["rom_pct"] != "" else "",
+                "tiempo_subida_s": round(rep["tiempo_subida_s"], 2),
+                "tiempo_bajada_s": (
+                    round(rep["tiempo_bajada_s"], 2) if rep["tiempo_bajada_s"] != "" else ""
+                ),
             })
+
+
+def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> None:
+    """Exporta una fila con los recuentos y promedios de un vídeo."""
+    estados = ("completa", "parcial", "sin retorno a extensión")
+    por_estado = {
+        estado: sum(rep["estado"] == estado for rep in repeticiones) for estado in estados
+    }
+    validas = [rep for rep in repeticiones if rep["estado"] in ("completa", "parcial")]
+
+    def promedio(campo: str, decimales: int) -> float | str:
+        valores = [rep[campo] for rep in validas if rep.get(campo, "") != ""]
+        return round(sum(valores) / len(valores), decimales) if valores else ""
+
+    columnas = [
+        "video",
+        "repeticiones_total",
+        "repeticiones_completas",
+        "repeticiones_parciales",
+        "repeticiones_sin_retorno",
+        "rom_pct_promedio",
+        "tiempo_subida_s_promedio",
+        "tiempo_bajada_s_promedio",
+    ]
+    with ruta.open("w", newline="", encoding="utf-8") as archivo:
+        writer = csv.DictWriter(archivo, fieldnames=columnas)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "video": video,
+                "repeticiones_total": len(repeticiones),
+                "repeticiones_completas": por_estado["completa"],
+                "repeticiones_parciales": por_estado["parcial"],
+                "repeticiones_sin_retorno": por_estado["sin retorno a extensión"],
+                "rom_pct_promedio": promedio("rom_pct", 1),
+                "tiempo_subida_s_promedio": promedio("tiempo_subida_s", 2),
+                "tiempo_bajada_s_promedio": promedio("tiempo_bajada_s", 2),
+            }
+        )
