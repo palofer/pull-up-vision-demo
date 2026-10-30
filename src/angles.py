@@ -143,7 +143,7 @@ def agregar_metricas_repeticiones(
         inicio = int(repeticion.get("inicio_fase_frame", repeticion["inicio_frame"]))
         fin = int(repeticion["fin_frame"])
         filas_ciclo = [fila for fila in angulos if inicio <= int(fila["frame"]) <= fin]
-        rom_por_lado = []
+        rom_por_lado = {}
         for lado in ("left", "right"):
             valores = [
                 float(fila[f"{lado}_elbow_deg"])
@@ -151,15 +151,19 @@ def agregar_metricas_repeticiones(
                 if fila.get(f"{lado}_elbow_deg", "") != ""
             ]
             if valores:
-                rom_por_lado.append((max(valores) - min(valores)) / rango_referencia * 100)
+                rom_por_lado[lado] = (max(valores) - min(valores)) / rango_referencia * 100
 
-        rom_pct = sum(rom_por_lado) / 2 if len(rom_por_lado) == 2 else ""
+        rom_pct = (
+            (rom_por_lado["left"] + rom_por_lado["right"]) / 2 if len(rom_por_lado) == 2 else ""
+        )
         inicio_tope = (int(repeticion["tope_frame"]) - inicio) / fps
         fin_tope = (fin - int(repeticion["tope_frame"])) / fps
         enriquecida = dict(repeticion)
         enriquecida.update(
             {
                 "rom_pct": rom_pct,
+                "rom_izq_pct": rom_por_lado.get("left", ""),
+                "rom_der_pct": rom_por_lado.get("right", ""),
                 "tiempo_subida_s": inicio_tope,
                 "tiempo_bajada_s": (
                     "" if repeticion["estado"] == "sin retorno a extensión" else fin_tope
@@ -185,6 +189,7 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
     columnas = [
         "inicio_frame", "inicio_fase_frame", "tope_frame", "fin_frame", "angulo_min_izq",
         "angulo_min_der", "holgura_max", "estado", "rom_pct",
+        "rom_izq_pct", "rom_der_pct",
         "tiempo_subida_s", "tiempo_bajada_s",
     ]
     with ruta.open("w", newline="", encoding="utf-8") as archivo:
@@ -202,6 +207,12 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
                 "holgura_max": round(holgura, 1) if holgura is not None else "",
                 "estado": rep["estado"],
                 "rom_pct": round(rep["rom_pct"], 1) if rep["rom_pct"] != "" else "",
+                "rom_izq_pct": (
+                    round(rep["rom_izq_pct"], 1) if rep["rom_izq_pct"] != "" else ""
+                ),
+                "rom_der_pct": (
+                    round(rep["rom_der_pct"], 1) if rep["rom_der_pct"] != "" else ""
+                ),
                 "tiempo_subida_s": round(rep["tiempo_subida_s"], 2),
                 "tiempo_bajada_s": (
                     round(rep["tiempo_bajada_s"], 2) if rep["tiempo_bajada_s"] != "" else ""

@@ -26,6 +26,7 @@ PESOS_POR_DEFECTO = ROOT / "notebooks/yolo11s-pose.pt"
 
 
 def obtener_fps(video: Path) -> float:
+    """Lee la tasa de fotogramas del vídeo y falla si no es válida."""
     captura = cv2.VideoCapture(str(video))
     try:
         fps = float(captura.get(cv2.CAP_PROP_FPS))
