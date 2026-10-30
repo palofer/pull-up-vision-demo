@@ -64,7 +64,7 @@ def calcular_holgura_cabeza(datos: list[dict], umbral_confianza: float = 0.3) ->
 def detectar_repeticiones(
     angulos: list[dict],
     datos: list[dict],
-    umbral_holgura: float = 20.0,
+    umbral_holgura: float = UMBRAL_HOLGURA,
     umbral_extension: float = UMBRAL_EXTENSION_CICLO,
     umbral_inicio: float = 130.0,
 ) -> list[dict]:
