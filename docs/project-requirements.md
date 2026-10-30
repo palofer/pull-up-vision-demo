@@ -22,7 +22,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 
 - [x] Calcular el ángulo del codo usando hombro, codo y muñeca.
 - [x] Usar la holgura cabeza–muñecas (máxima del ciclo ≥ 20 px) como criterio de completa/parcial, independiente del agarre; los ángulos de codo se conservan solo como dato de técnica.
-- [ ] Usar `atan2` para el cálculo angular. Actualmente se usa producto escalar y `arccos`.
+- [x] Usar `atan2` para el cálculo angular.
 - [ ] Expresar el rango de movimiento (ROM) como porcentaje, además de la clasificación completa/parcial.
 - [~] Graficar la diferencia vertical entre hombros; falta definir y validar el umbral de alerta.
 - [ ] Exportar por separado el tiempo de subida (fase concéntrica) y bajada (fase excéntrica).
@@ -38,7 +38,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 
 ## Pruebas y ejecución
 
-- [ ] Añadir pruebas unitarias de geometría; caso mínimo: puntos que formen 90° deben producir 90°.
+- [x] Añadir pruebas unitarias de geometría; caso mínimo: puntos que formen 90° deben producir 90°.
 - [ ] Añadir una CLI con `argparse` para seleccionar entrada y exportaciones.
 - [x] Mantener dependencias declaradas y bloqueadas mediante `uv`.
 - El comando de ejecución actual es `uv run python src/main.py`; aún no acepta argumentos.

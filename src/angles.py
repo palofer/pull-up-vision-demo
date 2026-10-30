@@ -10,11 +10,11 @@ def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None
     """Devuelve el ángulo ABC en grados; 180° corresponde a una línea recta."""
     vector_a = a - b
     vector_c = c - b
-    divisor = np.linalg.norm(vector_a) * np.linalg.norm(vector_c)
-    if divisor == 0:
+    if np.linalg.norm(vector_a) == 0 or np.linalg.norm(vector_c) == 0:
         return None
-    coseno = np.dot(vector_a, vector_c) / divisor
-    return float(np.degrees(np.arccos(np.clip(coseno, -1.0, 1.0))))
+    producto_cruzado = vector_a[0] * vector_c[1] - vector_a[1] * vector_c[0]
+    producto_escalar = np.dot(vector_a, vector_c)
+    return float(np.degrees(np.arctan2(abs(producto_cruzado), producto_escalar)))
 
 
 def calcular_angulos_codos(
