@@ -2,6 +2,7 @@
 
 import csv
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 import cv2
@@ -9,10 +10,87 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from angles import Repeticion
+from angles import EstadoRepeticion, Repeticion
 from config import CONFIGURACION, Configuracion
 
 matplotlib.use("Agg")
+
+Puntos = dict[int, tuple[int, int, float]]
+Conexion = tuple[int, int]
+
+_CONEXIONES_ESQUELETO: tuple[Conexion, ...] = (
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11),
+    (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
+)
+_COLORES_ESTADO = {
+    "completa": (0, 255, 128),
+    "parcial": (0, 165, 255),
+    "no_extension": (255, 0, 255),
+}
+_COLORES_ESTADO_GRAFICA = {
+    "completa": "#2e8b57",
+    "parcial": "#8b5a2b",
+    "no_extension": "#7b2cbf",
+}
+
+
+def _dibujar_esqueleto(
+    imagen: np.ndarray,
+    puntos: Puntos,
+    conexiones: tuple[Conexion, ...] | list[Conexion],
+    confianza_minima: float,
+    *,
+    color_conexion: tuple[int, int, int],
+    color_punto: tuple[int, int, int],
+    color_baja_confianza: tuple[int, int, int],
+    escala: float = 1.0,
+    recorte_x: tuple[int, int] | None = None,
+    desplazamiento_x: int = 0,
+    colores_conexiones: dict[Conexion, tuple[int, int, int]] | None = None,
+    grosor_linea: int = 3,
+    radio_punto: int = 6,
+    etiquetas: bool = False,
+    borde_punto: bool = False,
+) -> None:
+    """Dibuja keypoints visibles por confianza, con transformación opcional."""
+    def transformar(x: int, y: int) -> tuple[int, int]:
+        return round((x - desplazamiento_x) * escala), round(y * escala)
+
+    for a, b in conexiones:
+        if (
+            a not in puntos or b not in puntos
+            or puntos[a][2] < confianza_minima
+            or puntos[b][2] < confianza_minima
+        ):
+            continue
+        inicio = transformar(*puntos[a][:2])
+        fin = transformar(*puntos[b][:2])
+        color = (colores_conexiones or {}).get((a, b), color_conexion)
+        cv2.line(imagen, inicio, fin, color, grosor_linea)
+
+    for indice in range(5, 17):
+        if indice not in puntos:
+            continue
+        x_original, y_original, confianza = puntos[indice]
+        if recorte_x and not recorte_x[0] <= x_original < recorte_x[1]:
+            continue
+        x, y = transformar(x_original, y_original)
+        color = color_punto if confianza >= confianza_minima else color_baja_confianza
+        cv2.circle(imagen, (x, y), radio_punto, color, -1)
+        if borde_punto:
+            cv2.circle(imagen, (x, y), radio_punto, (0, 0, 0), 1)
+        if etiquetas:
+            cv2.putText(
+                imagen, str(indice), (x + 7, y - 7),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
+            )
+
+
+def _contar_estados(estados: Iterable[EstadoRepeticion]) -> dict[str, int]:
+    conteos = dict.fromkeys(_COLORES_ESTADO, 0)
+    for estado in estados:
+        conteos[estado] += 1
+    return conteos
 
 
 def _etiqueta_estado(estado: str) -> str:
@@ -154,10 +232,6 @@ def guardar_video_anotado(
         cap.release()
         raise RuntimeError("No se pudo crear el vídeo temporal")
 
-    conexiones = [
-        (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11),
-        (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
-    ]
     rangos = [
         (r["inicio_frame"], r["fin_frame"], i, r["estado"])
         for i, r in enumerate(repeticiones, start=1)
@@ -168,26 +242,11 @@ def guardar_video_anotado(
         if not ok:
             break
         puntos = puntos_por_frame.get(frame_idx, {})
-        for a, b in conexiones:
-            if (
-                a in puntos and b in puntos
-                and puntos[a][2] >= config.confianza_keypoints
-                and puntos[b][2] >= config.confianza_keypoints
-            ):
-                cv2.line(imagen, puntos[a][:2], puntos[b][:2], (0, 220, 255), 3)
-        for indice in range(5, 17):
-            if indice in puntos:
-                x, y, confianza = puntos[indice]
-                color = (
-                    (0, 200, 0)
-                    if confianza >= config.confianza_keypoints
-                    else (0, 0, 255)
-                )
-                cv2.circle(imagen, (x, y), 6, color, -1)
-                cv2.putText(
-                    imagen, str(indice), (x + 7, y - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
-                )
+        _dibujar_esqueleto(
+            imagen, puntos, _CONEXIONES_ESQUELETO, config.confianza_keypoints,
+            color_conexion=(0, 220, 255), color_punto=(0, 200, 0),
+            color_baja_confianza=(0, 0, 255), etiquetas=True,
+        )
         fila = angulos_por_frame.get(frame_idx, {})
         izq, der = fila.get("left_elbow_deg", ""), fila.get("right_elbow_deg", "")
         etiqueta_angulos = (
@@ -203,7 +262,10 @@ def guardar_video_anotado(
             imagen, f"{frame_idx / fps:.2f} s | {etiqueta_angulos}", (15, 28),
             cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2,
         )
-        color_rep = (0, 220, 0) if rep_actual and rep_actual[3] == "completa" else (0, 165, 255)
+        color_rep = (
+            _COLORES_ESTADO[rep_actual[3]]
+            if rep_actual else (0, 165, 255)
+        )
         cv2.putText(
             imagen, etiqueta_rep, (15, 58), cv2.FONT_HERSHEY_SIMPLEX,
             0.65, color_rep, 2,
@@ -297,15 +359,10 @@ def guardar_dashboard(
     dot_der, = ax.plot([], [], "o", color="tab:orange")
     fig.tight_layout()
 
-    conexiones = [
-        (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11),
-        (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
-    ]
-
     frame_idx = 0
     total_reps = len(repeticiones)
-    completas = sum(1 for r in repeticiones if r["estado"] == "completa")
-    parciales = total_reps - completas
+    conteos = _contar_estados(rep["estado"] for rep in repeticiones)
+    completas = conteos["completa"]
 
     while True:
         ok, imagen = cap.read()
@@ -314,30 +371,18 @@ def guardar_dashboard(
 
         # Dibuja keypoints 5-16.
         puntos = puntos_por_frame.get(frame_idx, {})
-        for a, b in conexiones:
-            if (
-                a in puntos and b in puntos
-                and puntos[a][2] >= config.confianza_keypoints
-                and puntos[b][2] >= config.confianza_keypoints
-            ):
-                cv2.line(imagen, puntos[a][:2], puntos[b][:2], (0, 220, 255), 3)
-        for indice in range(5, 17):
-            if indice in puntos:
-                x, y, confianza = puntos[indice]
-                color = (
-                    (0, 200, 0)
-                    if confianza >= config.confianza_keypoints
-                    else (0, 0, 255)
-                )
-                cv2.circle(imagen, (x, y), 6, color, -1)
-                cv2.putText(
-                    imagen, str(indice), (x + 7, y - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
-                )
+        _dibujar_esqueleto(
+            imagen, puntos, _CONEXIONES_ESQUELETO, config.confianza_keypoints,
+            color_conexion=(0, 220, 255), color_punto=(0, 200, 0),
+            color_baja_confianza=(0, 0, 255), etiquetas=True,
+        )
 
         # Etiqueta de repetición actual.
         rep_actual = next((r for r in rangos if r[0] <= frame_idx <= r[1]), None)
-        color_rep = (0, 220, 0) if rep_actual and rep_actual[3] == "completa" else (0, 165, 255)
+        color_rep = (
+            _COLORES_ESTADO.get(rep_actual[3], (0, 165, 255))
+            if rep_actual else (0, 165, 255)
+        )
         if rep_actual:
             etiqueta_rep = (
                 f"Rep {rep_actual[2]}/{total_reps}: {_etiqueta_estado(rep_actual[3])}"
@@ -345,7 +390,11 @@ def guardar_dashboard(
         elif frame_idx < (rangos[0][0] if rangos else 0):
             etiqueta_rep = "PREPARANDO..."
         elif frame_idx > (rangos[-1][1] if rangos else 0):
-            etiqueta_rep = f"FINALIZADO: {completas} completas, {parciales} parciales"
+            etiqueta_rep = (
+                f"FINALIZADO: {completas} completas, "
+                f"{conteos['parcial']} parciales, "
+                f"{conteos['no_extension']} no extension"
+            )
         else:
             etiqueta_rep = "ENTRE REPETICIONES"
         cv2.putText(
@@ -550,45 +599,36 @@ def guardar_interfaz(
 
         # Dibuja el esqueleto con colores por región.
         puntos = puntos_por_frame.get(frame_idx, {})
-        for (a, b), color in colores_esqueleto.items():
-            if (
-                a in puntos and b in puntos
-                and puntos[a][2] >= config.confianza_keypoints
-                and puntos[b][2] >= config.confianza_keypoints
-            ):
-                inicio = (round((puntos[a][0] - x_izq) * escala), round(puntos[a][1] * escala))
-                fin = (round((puntos[b][0] - x_izq) * escala), round(puntos[b][1] * escala))
-                cv2.line(imagen, inicio, fin, color, 4)
-        for indice in range(5, 17):
-            if indice in puntos:
-                x_original, y_original, confianza = puntos[indice]
-                if not x_izq <= x_original < x_der:
-                    continue
-                x = round((x_original - x_izq) * escala)
-                y = round(y_original * escala)
-                color = (
-                    (255, 255, 255)
-                    if confianza >= config.confianza_keypoints
-                    else (0, 0, 255)
-                )
-                cv2.circle(imagen, (x, y), 5, color, -1)
-                cv2.circle(imagen, (x, y), 5, (0, 0, 0), 1)
+        _dibujar_esqueleto(
+            imagen, puntos, _CONEXIONES_ESQUELETO, config.confianza_keypoints,
+            color_conexion=(255, 255, 255), color_punto=(255, 255, 255),
+            color_baja_confianza=(0, 0, 255), escala=escala,
+            recorte_x=(x_izq, x_der), desplazamiento_x=x_izq,
+            colores_conexiones=colores_esqueleto, grosor_linea=4,
+            radio_punto=5, borde_punto=True,
+        )
 
         # Panel derecho oscuro.
         panel = np.full((alto_total, ancho_panel, 3), (25, 25, 28), dtype=np.uint8)
 
         # Métricas superiores.
-        completadas = [s for s in stats if frame_idx >= s["fin_frame"]]
-        completas = sum(1 for s in completadas if s["estado"] == "completa")
-        cv2.putText(panel, f"Reps: {len(completadas)}", (30, 45),
+        reps_finalizadas = [s for s in stats if frame_idx >= s["fin_frame"]]
+        conteos = _contar_estados(rep["estado"] for rep in reps_finalizadas)
+        completas = conteos["completa"]
+        cv2.putText(panel, f"Reps: {len(reps_finalizadas)}", (30, 45),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         color_rom = (
             (0, 255, 128)
-            if completadas and completas == len(completadas)
+            if reps_finalizadas and completas == len(reps_finalizadas)
             else (0, 165, 255)
         )
-        cv2.putText(panel, f"Full ROM: {completas} / {len(completadas)}", (30, 85),
+        cv2.putText(panel, f"Full ROM: {completas} / {len(reps_finalizadas)}", (30, 85),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_rom, 2)
+        cv2.putText(
+            panel,
+            f"Partial: {conteos['parcial']} | No extension: {conteos['no_extension']}",
+            (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 1,
+        )
 
         fila = angulos_por_frame.get(frame_idx, {})
         izq, der = fila.get("left_elbow_deg", ""), fila.get("right_elbow_deg", "")
@@ -606,7 +646,7 @@ def guardar_interfaz(
         linea_der.set_data(tiempos[:hasta_ahora], angulo_der[:hasta_ahora])
         while siguiente_zona < len(stats) and frame_idx >= stats[siguiente_zona]["fin_frame"]:
             rep = stats[siguiente_zona]
-            color = "#2e8b57" if rep["estado"] == "completa" else "#8b5a2b"
+            color = _COLORES_ESTADO_GRAFICA[rep["estado"]]
             ax.axvspan(
                 rep["inicio_frame"] / fps, rep["fin_frame"] / fps,
                 color=color, alpha=0.25,
@@ -636,14 +676,19 @@ def guardar_interfaz(
         # Tabla de repeticiones.
         y_tabla = y_graf + alto_graf_px + 40
         columnas = ["REP", "ROM", "BOTTOM", "TOP", "PULL"]
-        xs = [50, 150, 240, 340, 440]
+        xs = [35, 110, 250, 365, 480]
         for x, col in zip(xs, columnas, strict=False):
             cv2.putText(panel, col, (x, y_tabla), cv2.FONT_HERSHEY_SIMPLEX,
                         0.55, (160, 160, 160), 1)
-        for i, s in enumerate(completadas):
+        etiquetas_estado = {
+            "completa": "FULL",
+            "parcial": "PARTIAL",
+            "no_extension": "NO EXTENSION",
+        }
+        for i, s in enumerate(reps_finalizadas):
             y = y_tabla + 35 * (i + 1)
-            color_estado = (0, 255, 128) if s["estado"] == "completa" else (0, 165, 255)
-            rom_txt = "FULL" if s["estado"] == "completa" else "PARTIAL"
+            color_estado = _COLORES_ESTADO[s["estado"]]
+            rom_txt = etiquetas_estado[s["estado"]]
             fila_txt = [
                 str(s["rep"]), rom_txt, f"{s['bottom']:.0f}\u00b0",
                 f"{s['top']:.0f}\u00b0",
@@ -654,7 +699,7 @@ def guardar_interfaz(
                                       (255, 255, 255), (255, 255, 255),
                                       (255, 255, 255)], strict=False):
                 cv2.putText(panel, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.55, color, 1)
+                            0.45, color, 1)
 
         lienzo = np.zeros((alto_total, ancho_total, 3), dtype=np.uint8)
         lienzo[:, :ancho_video] = imagen

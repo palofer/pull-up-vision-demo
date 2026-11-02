@@ -15,6 +15,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 - El flujo usa YOLO-pose para analizar fotogramas y exporta keypoints a CSV.
 - Calcula ángulos de codo y posiciones de hombros como datos de técnica/asimetría, y clasifica cada ciclo como completo o parcial mediante la holgura cabeza–muñecas (criterio independiente del agarre).
 - Un ciclo que no retorna a extensión antes de terminar el vídeo se clasifica como `no_extension`.
+- Los recuentos de interfaz tratan `completa`, `parcial` y `no_extension` como categorías separadas. `no_extension` cuenta en el total, pero no como parcial; el porcentaje Full ROM es el número de completas dividido por todas las repeticiones detectadas.
 - Genera una interfaz de vídeo con keypoints 5–16, una gráfica de ángulos y un contador que avanza al terminar cada repetición.
 - La interfaz recorta las bandas negras laterales detectadas en el vídeo de entrada.
 - La configuración de dependencias usa `uv`, `pyproject.toml` y `uv.lock`.
