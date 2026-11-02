@@ -296,7 +296,7 @@ def guardar_video_anotado(
             imagen, etiqueta_rep, (15, 58), cv2.FONT_HERSHEY_SIMPLEX,
             0.65, color_rep, 2,
         )
-        if frame_idx > (rangos[-1][1] if rangos else 0):
+        if frame_idx >= (rangos[-1][1] if rangos else 0):
             _dibujar_resumen_estados(imagen, conteos, (15, 88), 0.4)
         writer.write(imagen)
         frame_idx += 1
@@ -410,7 +410,7 @@ def guardar_dashboard(
             _ESTILOS_ESTADO[rep_actual[3]].color
             if rep_actual else (0, 165, 255)
         )
-        fin_dashboard = frame_idx > (rangos[-1][1] if rangos else 0)
+        fin_dashboard = frame_idx >= (rangos[-1][1] if rangos else 0)
         if rep_actual:
             etiqueta_rep = (
                 f"Rep {rep_actual[2]}/{total_reps}: {_etiqueta_estado(rep_actual[3])}"
