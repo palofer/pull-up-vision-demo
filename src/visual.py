@@ -4,6 +4,7 @@ import csv
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import matplotlib
@@ -22,15 +23,18 @@ _CONEXIONES_ESQUELETO: tuple[Conexion, ...] = (
     (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11),
     (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
 )
-_COLORES_ESTADO = {
-    "completa": (0, 255, 128),
-    "parcial": (0, 165, 255),
-    "no_extension": (255, 0, 255),
-}
-_COLORES_ESTADO_GRAFICA = {
-    "completa": "#2e8b57",
-    "parcial": "#8b5a2b",
-    "no_extension": "#7b2cbf",
+
+
+class _EstiloEstado(NamedTuple):
+    etiqueta: str
+    color: tuple[int, int, int]
+    color_grafica: str
+
+
+_ESTILOS_ESTADO: dict[EstadoRepeticion, _EstiloEstado] = {
+    "completa": _EstiloEstado("FULL", (0, 255, 128), "#2e8b57"),
+    "parcial": _EstiloEstado("PARTIAL", (0, 165, 255), "#8b5a2b"),
+    "no_extension": _EstiloEstado("NO EXTENSION", (255, 0, 255), "#7b2cbf"),
 }
 
 
@@ -87,7 +91,7 @@ def _dibujar_esqueleto(
 
 
 def _contar_estados(estados: Iterable[EstadoRepeticion]) -> dict[str, int]:
-    conteos = dict.fromkeys(_COLORES_ESTADO, 0)
+    conteos = dict.fromkeys(_ESTILOS_ESTADO, 0)
     for estado in estados:
         conteos[estado] += 1
     return conteos
@@ -263,7 +267,7 @@ def guardar_video_anotado(
             cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2,
         )
         color_rep = (
-            _COLORES_ESTADO[rep_actual[3]]
+            _ESTILOS_ESTADO[rep_actual[3]].color
             if rep_actual else (0, 165, 255)
         )
         cv2.putText(
@@ -380,21 +384,18 @@ def guardar_dashboard(
         # Etiqueta de repetición actual.
         rep_actual = next((r for r in rangos if r[0] <= frame_idx <= r[1]), None)
         color_rep = (
-            _COLORES_ESTADO.get(rep_actual[3], (0, 165, 255))
+            _ESTILOS_ESTADO[rep_actual[3]].color
             if rep_actual else (0, 165, 255)
         )
+        fin_dashboard = frame_idx > (rangos[-1][1] if rangos else 0)
         if rep_actual:
             etiqueta_rep = (
                 f"Rep {rep_actual[2]}/{total_reps}: {_etiqueta_estado(rep_actual[3])}"
             )
         elif frame_idx < (rangos[0][0] if rangos else 0):
             etiqueta_rep = "PREPARANDO..."
-        elif frame_idx > (rangos[-1][1] if rangos else 0):
-            etiqueta_rep = (
-                f"FINALIZADO: {completas} completas, "
-                f"{conteos['parcial']} parciales, "
-                f"{conteos['no_extension']} no extension"
-            )
+        elif fin_dashboard:
+            etiqueta_rep = "FINALIZADO"
         else:
             etiqueta_rep = "ENTRE REPETICIONES"
         cv2.putText(
@@ -425,6 +426,16 @@ def guardar_dashboard(
             lienzo, etiqueta_rep, (20, 28),
             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
         )
+        if fin_dashboard:
+            for estado, texto, x in (
+                ("completa", f"{completas} completas", 175),
+                ("parcial", f"{conteos['parcial']} parciales", 330),
+                ("no_extension", f"{conteos['no_extension']} no extension", 470),
+            ):
+                cv2.putText(
+                    lienzo, texto, (x, 28), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45, _ESTILOS_ESTADO[estado].color, 1,
+                )
         angulos_txt = (
             f"Codos: izq {float(izq):.0f} deg | der {float(der):.0f} deg"
             if izq and der else "Codos: sin deteccion"
@@ -624,11 +635,15 @@ def guardar_interfaz(
         )
         cv2.putText(panel, f"Full ROM: {completas} / {len(reps_finalizadas)}", (30, 85),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_rom, 2)
-        cv2.putText(
-            panel,
-            f"Partial: {conteos['parcial']} | No extension: {conteos['no_extension']}",
-            (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 1,
-        )
+        for estado, texto, x in (
+            ("completa", f"Complete: {conteos['completa']}", 30),
+            ("parcial", f"Partial: {conteos['parcial']}", 225),
+            ("no_extension", f"No extension: {conteos['no_extension']}", 390),
+        ):
+            cv2.putText(
+                panel, texto, (x, 125), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, _ESTILOS_ESTADO[estado].color, 1,
+            )
 
         fila = angulos_por_frame.get(frame_idx, {})
         izq, der = fila.get("left_elbow_deg", ""), fila.get("right_elbow_deg", "")
@@ -646,7 +661,7 @@ def guardar_interfaz(
         linea_der.set_data(tiempos[:hasta_ahora], angulo_der[:hasta_ahora])
         while siguiente_zona < len(stats) and frame_idx >= stats[siguiente_zona]["fin_frame"]:
             rep = stats[siguiente_zona]
-            color = _COLORES_ESTADO_GRAFICA[rep["estado"]]
+            color = _ESTILOS_ESTADO[rep["estado"]].color_grafica
             ax.axvspan(
                 rep["inicio_frame"] / fps, rep["fin_frame"] / fps,
                 color=color, alpha=0.25,
@@ -680,15 +695,11 @@ def guardar_interfaz(
         for x, col in zip(xs, columnas, strict=False):
             cv2.putText(panel, col, (x, y_tabla), cv2.FONT_HERSHEY_SIMPLEX,
                         0.55, (160, 160, 160), 1)
-        etiquetas_estado = {
-            "completa": "FULL",
-            "parcial": "PARTIAL",
-            "no_extension": "NO EXTENSION",
-        }
         for i, s in enumerate(reps_finalizadas):
             y = y_tabla + 35 * (i + 1)
-            color_estado = _COLORES_ESTADO[s["estado"]]
-            rom_txt = etiquetas_estado[s["estado"]]
+            estilo_estado = _ESTILOS_ESTADO[s["estado"]]
+            color_estado = estilo_estado.color
+            rom_txt = estilo_estado.etiqueta
             fila_txt = [
                 str(s["rep"]), rom_txt, f"{s['bottom']:.0f}\u00b0",
                 f"{s['top']:.0f}\u00b0",
