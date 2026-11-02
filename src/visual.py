@@ -97,6 +97,27 @@ def _contar_estados(estados: Iterable[EstadoRepeticion]) -> dict[str, int]:
     return conteos
 
 
+def _dibujar_resumen_estados(
+    imagen: np.ndarray,
+    conteos: dict[str, int],
+    origen: tuple[int, int],
+    escala: float,
+) -> None:
+    """Dibuja los subtotales con color propio y salto de línea si hace falta."""
+    x, y = origen
+    for estado, estilo in _ESTILOS_ESTADO.items():
+        texto = f"{estilo.etiqueta}: {conteos[estado]}"
+        ancho = cv2.getTextSize(texto, cv2.FONT_HERSHEY_SIMPLEX, escala, 1)[0][0]
+        if x > origen[0] and x + ancho > imagen.shape[1] - 15:
+            x = origen[0]
+            y += round(22 * escala / 0.5)
+        cv2.putText(
+            imagen, texto, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+            escala, estilo.color, 1,
+        )
+        x += ancho + 14
+
+
 def _etiqueta_estado(estado: str) -> str:
     return estado.replace("_", " ").upper()
 
@@ -240,6 +261,7 @@ def guardar_video_anotado(
         (r["inicio_frame"], r["fin_frame"], i, r["estado"])
         for i, r in enumerate(repeticiones, start=1)
     ]
+    conteos = _contar_estados(rep["estado"] for rep in repeticiones)
     frame_idx = 0
     while True:
         ok, imagen = cap.read()
@@ -274,6 +296,8 @@ def guardar_video_anotado(
             imagen, etiqueta_rep, (15, 58), cv2.FONT_HERSHEY_SIMPLEX,
             0.65, color_rep, 2,
         )
+        if frame_idx > (rangos[-1][1] if rangos else 0):
+            _dibujar_resumen_estados(imagen, conteos, (15, 88), 0.4)
         writer.write(imagen)
         frame_idx += 1
     cap.release()
@@ -366,7 +390,6 @@ def guardar_dashboard(
     frame_idx = 0
     total_reps = len(repeticiones)
     conteos = _contar_estados(rep["estado"] for rep in repeticiones)
-    completas = conteos["completa"]
 
     while True:
         ok, imagen = cap.read()
@@ -427,15 +450,7 @@ def guardar_dashboard(
             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
         )
         if fin_dashboard:
-            for estado, texto, x in (
-                ("completa", f"{completas} completas", 175),
-                ("parcial", f"{conteos['parcial']} parciales", 330),
-                ("no_extension", f"{conteos['no_extension']} no extension", 470),
-            ):
-                cv2.putText(
-                    lienzo, texto, (x, 28), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.45, _ESTILOS_ESTADO[estado].color, 1,
-                )
+            _dibujar_resumen_estados(lienzo, conteos, (175, 28), 0.45)
         angulos_txt = (
             f"Codos: izq {float(izq):.0f} deg | der {float(der):.0f} deg"
             if izq and der else "Codos: sin deteccion"
@@ -635,15 +650,7 @@ def guardar_interfaz(
         )
         cv2.putText(panel, f"Full ROM: {completas} / {len(reps_finalizadas)}", (30, 85),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_rom, 2)
-        for estado, texto, x in (
-            ("completa", f"Complete: {conteos['completa']}", 30),
-            ("parcial", f"Partial: {conteos['parcial']}", 225),
-            ("no_extension", f"No extension: {conteos['no_extension']}", 390),
-        ):
-            cv2.putText(
-                panel, texto, (x, 125), cv2.FONT_HERSHEY_SIMPLEX,
-                0.5, _ESTILOS_ESTADO[estado].color, 1,
-            )
+        _dibujar_resumen_estados(panel, conteos, (30, 125), 0.5)
 
         fila = angulos_por_frame.get(frame_idx, {})
         izq, der = fila.get("left_elbow_deg", ""), fila.get("right_elbow_deg", "")
