@@ -1,6 +1,6 @@
 # Triage Labels
 
-The triage skill uses five canonical state roles. This file maps them to the state strings used in local issue files.
+The triage skill uses five canonical state roles. This file maps them to the strings used in an issue's `Status:` line; assignment and completion are tracked separately.
 
 | Canonical role | Local state | Meaning |
 |---|---|---|

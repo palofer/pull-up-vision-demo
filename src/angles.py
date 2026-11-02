@@ -2,13 +2,30 @@
 
 import csv
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import numpy as np
 
-UMBRAL_HOLGURA: float = 20.0
-ROM_ANGULO_EXTENSION_REFERENCIA: float = 180.0
-ROM_ANGULO_FLEXION_REFERENCIA: float = 55.0
-UMBRAL_EXTENSION_CICLO: float = 150.0
+from config import CONFIGURACION, Configuracion
+
+EstadoRepeticion = Literal["completa", "parcial", "no_extension"]
+
+
+class Repeticion(TypedDict, total=False):
+    inicio_frame: int
+    inicio_fase_frame: int | None
+    tope_frame: int
+    fin_frame: int
+    angulo_min_izq: float
+    angulo_min_der: float
+    mejor_max: float
+    holgura_max: float | None
+    estado: EstadoRepeticion
+    rom_pct: float | str
+    rom_izq_pct: float | str
+    rom_der_pct: float | str
+    tiempo_subida_s: float | str
+    tiempo_bajada_s: float | str
 
 
 def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
@@ -22,7 +39,7 @@ def calcular_angulo(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None
     return float(np.degrees(np.arctan2(abs(producto_cruzado), producto_escalar)))
 
 
-def calcular_angulos_codos(datos: list[dict], umbral_confianza: float = 0.5) -> list[dict]:
+def calcular_angulos_codos(datos: list[dict], config: Configuracion = CONFIGURACION) -> list[dict]:
     """Calcula ambos codos por fotograma, usando a la persona más confiable."""
     angulos = []
     lados = [("left", 5, 7, 9), ("right", 6, 8, 10)]
@@ -36,14 +53,16 @@ def calcular_angulos_codos(datos: list[dict], umbral_confianza: float = 0.5) -> 
                 confianza = float(np.min(conf[[hombro, codo, muneca]]))
                 angulo = calcular_angulo(xy[hombro], xy[codo], xy[muneca])
                 fila[f"{lado}_elbow_deg"] = (
-                    angulo if confianza >= umbral_confianza and angulo is not None else ""
+                    angulo if confianza >= config.confianza_keypoints and angulo is not None else ""
                 )
                 fila[f"{lado}_min_conf"] = confianza
         angulos.append(fila)
     return angulos
 
 
-def calcular_holgura_cabeza(datos: list[dict], umbral_confianza: float = 0.3) -> dict[int, float]:
+def calcular_holgura_cabeza(
+    datos: list[dict], config: Configuracion = CONFIGURACION
+) -> dict[int, float]:
     """Holgura cabeza–muñecas por fotograma (positivo = cabeza sobre las muñecas)."""
     holgura: dict[int, float] = {}
     for frame in datos:
@@ -51,8 +70,8 @@ def calcular_holgura_cabeza(datos: list[dict], umbral_confianza: float = 0.3) ->
             continue
         persona = int(np.argmax(frame["person_conf"]))
         xy, conf = frame["xy"][persona], frame["conf"][persona]
-        orejas = [xy[i] for i in (3, 4) if conf[i] >= umbral_confianza]
-        munecas = [xy[i] for i in (9, 10) if conf[i] >= umbral_confianza]
+        orejas = [xy[i] for i in (3, 4) if conf[i] >= config.confianza_holgura]
+        munecas = [xy[i] for i in (9, 10) if conf[i] >= config.confianza_holgura]
         if not orejas or not munecas:
             continue
         y_orejas = float(np.mean([p[1] for p in orejas]))
@@ -64,14 +83,12 @@ def calcular_holgura_cabeza(datos: list[dict], umbral_confianza: float = 0.3) ->
 def detectar_repeticiones(
     angulos: list[dict],
     datos: list[dict],
-    umbral_holgura: float = UMBRAL_HOLGURA,
-    umbral_extension: float = UMBRAL_EXTENSION_CICLO,
-    umbral_inicio: float = 130.0,
-) -> list[dict]:
+    config: Configuracion = CONFIGURACION,
+) -> list[Repeticion]:
     """Detecta ciclos por codos y los clasifica por holgura cabeza–muñecas."""
-    holgura = calcular_holgura_cabeza(datos)
-    repeticiones = []
-    actual = None
+    holgura = calcular_holgura_cabeza(datos, config)
+    repeticiones: list[Repeticion] = []
+    actual: Repeticion | None = None
     ultimo_frame = None
     ultimo_frame_extendido = None
     for fila in angulos:
@@ -79,16 +96,14 @@ def detectar_repeticiones(
         if fila.get("left_elbow_deg", "") == "" or fila.get("right_elbow_deg", "") == "":
             continue
         izq, der = float(fila["left_elbow_deg"]), float(fila["right_elbow_deg"])
-        extendido = izq >= umbral_extension and der >= umbral_extension
-        inicio = min(izq, der) <= umbral_inicio
+        extendido = izq >= config.umbral_extension and der >= config.umbral_extension
+        inicio = min(izq, der) <= config.umbral_inicio
         if actual is None and extendido:
             ultimo_frame_extendido = frame
         if actual is None and not extendido and inicio:
             actual = {
                 "inicio_frame": frame,
-                "inicio_fase_frame": (
-                    ultimo_frame_extendido if ultimo_frame_extendido is not None else frame
-                ),
+                "inicio_fase_frame": ultimo_frame_extendido,
                 "angulo_min_izq": izq,
                 "angulo_min_der": der,
                 "mejor_max": max(izq, der),
@@ -110,7 +125,8 @@ def detectar_repeticiones(
             actual["holgura_max"] = max(holgura_ciclo) if holgura_ciclo else None
             actual["estado"] = (
                 "completa"
-                if actual["holgura_max"] is not None and actual["holgura_max"] >= umbral_holgura
+                if actual["holgura_max"] is not None
+                and actual["holgura_max"] >= config.umbral_holgura
                 else "parcial"
             )
             repeticiones.append(actual)
@@ -122,24 +138,31 @@ def detectar_repeticiones(
             holgura[f] for f in range(actual["inicio_frame"], ultimo_frame + 1) if f in holgura
         ]
         actual["holgura_max"] = max(holgura_ciclo) if holgura_ciclo else None
-        actual["estado"] = "sin retorno a extensión"
+        actual["estado"] = "no_extension"
         repeticiones.append(actual)
     return repeticiones
 
 
 def agregar_metricas_repeticiones(
-    repeticiones: list[dict], angulos: list[dict], fps: float
-) -> list[dict]:
+    repeticiones: list[Repeticion],
+    angulos: list[dict],
+    fps: float,
+    config: Configuracion = CONFIGURACION,
+) -> list[Repeticion]:
     """Añade ROM porcentual y tiempos de subida/bajada a cada ciclo detectado."""
     if fps <= 0:
         raise ValueError("Los FPS deben ser mayores que cero")
 
-    rango_referencia = ROM_ANGULO_EXTENSION_REFERENCIA - ROM_ANGULO_FLEXION_REFERENCIA
+    rango_referencia = config.angulo_extension_referencia_rom - config.angulo_flexion_referencia_rom
     enriquecidas = []
     for repeticion in repeticiones:
-        inicio = int(repeticion.get("inicio_fase_frame", repeticion["inicio_frame"]))
+        inicio = repeticion.get("inicio_fase_frame")
         fin = int(repeticion["fin_frame"])
-        filas_ciclo = [fila for fila in angulos if inicio <= int(fila["frame"]) <= fin]
+        filas_ciclo = (
+            [fila for fila in angulos if inicio <= int(fila["frame"]) <= fin]
+            if inicio is not None
+            else []
+        )
         rom_por_lado = {}
         for lado in ("left", "right"):
             valores = [
@@ -153,7 +176,7 @@ def agregar_metricas_repeticiones(
         rom_pct = (
             (rom_por_lado["left"] + rom_por_lado["right"]) / 2 if len(rom_por_lado) == 2 else ""
         )
-        inicio_tope = (int(repeticion["tope_frame"]) - inicio) / fps
+        inicio_tope = (int(repeticion["tope_frame"]) - inicio) / fps if inicio is not None else ""
         fin_tope = (fin - int(repeticion["tope_frame"])) / fps
         enriquecida = dict(repeticion)
         enriquecida.update(
@@ -162,9 +185,7 @@ def agregar_metricas_repeticiones(
                 "rom_izq_pct": rom_por_lado.get("left", ""),
                 "rom_der_pct": rom_por_lado.get("right", ""),
                 "tiempo_subida_s": inicio_tope,
-                "tiempo_bajada_s": (
-                    "" if repeticion["estado"] == "sin retorno a extensión" else fin_tope
-                ),
+                "tiempo_bajada_s": ("" if repeticion["estado"] == "no_extension" else fin_tope),
             }
         )
         enriquecidas.append(enriquecida)
@@ -186,7 +207,7 @@ def guardar_csv_angulos(angulos: list[dict], ruta: Path) -> None:
         writer.writerows(angulos)
 
 
-def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
+def guardar_csv_repeticiones(repeticiones: list[Repeticion], ruta: Path) -> None:
     columnas = [
         "inicio_frame",
         "inicio_fase_frame",
@@ -210,7 +231,11 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
             writer.writerow(
                 {
                     "inicio_frame": rep["inicio_frame"],
-                    "inicio_fase_frame": rep.get("inicio_fase_frame", rep["inicio_frame"]),
+                    "inicio_fase_frame": (
+                        rep.get("inicio_fase_frame")
+                        if rep.get("inicio_fase_frame") is not None
+                        else ""
+                    ),
                     "tope_frame": rep["tope_frame"],
                     "fin_frame": rep["fin_frame"],
                     "angulo_min_izq": round(rep["angulo_min_izq"], 1),
@@ -224,7 +249,9 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
                     "rom_der_pct": (
                         round(rep["rom_der_pct"], 1) if rep["rom_der_pct"] != "" else ""
                     ),
-                    "tiempo_subida_s": round(rep["tiempo_subida_s"], 2),
+                    "tiempo_subida_s": (
+                        round(rep["tiempo_subida_s"], 2) if rep["tiempo_subida_s"] != "" else ""
+                    ),
                     "tiempo_bajada_s": (
                         round(rep["tiempo_bajada_s"], 2) if rep["tiempo_bajada_s"] != "" else ""
                     ),
@@ -232,9 +259,9 @@ def guardar_csv_repeticiones(repeticiones: list[dict], ruta: Path) -> None:
             )
 
 
-def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> None:
+def guardar_csv_resumen(repeticiones: list[Repeticion], video: str, ruta: Path) -> None:
     """Exporta una fila con los recuentos y promedios de un vídeo."""
-    estados = ("completa", "parcial", "sin retorno a extensión")
+    estados = ("completa", "parcial", "no_extension")
     por_estado = {
         estado: sum(rep["estado"] == estado for rep in repeticiones) for estado in estados
     }
@@ -251,7 +278,7 @@ def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> Non
         "repeticiones_total",
         "repeticiones_completas",
         "repeticiones_parciales",
-        "repeticiones_sin_retorno",
+        "repeticiones_no_extension",
         "rom_pct_promedio",
         "tiempo_subida_s_promedio",
         "tiempo_bajada_s_promedio",
@@ -265,7 +292,7 @@ def guardar_csv_resumen(repeticiones: list[dict], video: str, ruta: Path) -> Non
                 "repeticiones_total": len(repeticiones),
                 "repeticiones_completas": por_estado["completa"],
                 "repeticiones_parciales": por_estado["parcial"],
-                "repeticiones_sin_retorno": por_estado["sin retorno a extensión"],
+                "repeticiones_no_extension": por_estado["no_extension"],
                 "rom_pct_promedio": promedio("rom_pct", 1),
                 "tiempo_subida_s_promedio": promedio("tiempo_subida_s", 2),
                 "tiempo_bajada_s_promedio": promedio("tiempo_bajada_s", 2),

@@ -9,10 +9,22 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
+from angles import Repeticion
+from config import CONFIGURACION, Configuracion
+
 matplotlib.use("Agg")
 
 
-def guardar_grafica_angulos(angulos: list[dict], video: Path, salida: Path) -> Path:
+def _etiqueta_estado(estado: str) -> str:
+    return estado.replace("_", " ").upper()
+
+
+def guardar_grafica_angulos(
+    angulos: list[dict],
+    video: Path,
+    salida: Path,
+    config: Configuracion = CONFIGURACION,
+) -> Path:
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS)
     cap.release()
@@ -29,7 +41,11 @@ def guardar_grafica_angulos(angulos: list[dict], video: Path, salida: Path) -> P
     fig, ax = plt.subplots(figsize=(12, 5))
     for etiqueta, valores in series.items():
         ax.plot(tiempo, valores, label=etiqueta)
-    ax.set(xlabel="Tiempo (s)", ylabel="Ángulo del codo (°)", ylim=(180, 0))
+    ax.set(
+        xlabel="Tiempo (s)",
+        ylabel="Ángulo del codo (°)",
+        ylim=(config.angulo_extension_referencia_rom, 0),
+    )
     ax.set_title("Ángulo de los codos durante la dominada")
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -41,7 +57,11 @@ def guardar_grafica_angulos(angulos: list[dict], video: Path, salida: Path) -> P
 
 
 def guardar_grafica_hombros(
-    angulos: list[dict], csv_keypoints: Path, video: Path, salida: Path
+    angulos: list[dict],
+    csv_keypoints: Path,
+    video: Path,
+    salida: Path,
+    config: Configuracion = CONFIGURACION,
 ) -> Path:
     """Grafica la altura de ambos hombros y su diferencia vertical por fotograma."""
     cap = cv2.VideoCapture(str(video))
@@ -65,7 +85,7 @@ def guardar_grafica_hombros(
                 continue
             if int(punto["person_idx"]) != persona_por_frame.get(frame, -1):
                 continue
-            if float(punto["keypoint_conf"]) < 0.5:
+            if float(punto["keypoint_conf"]) < config.confianza_keypoints:
                 continue
             y = float(punto["y_px"])
             (hombro_izq if indice == 5 else hombro_der)[frame] = y
@@ -100,8 +120,9 @@ def guardar_video_anotado(
     video: Path,
     csv_keypoints: Path,
     angulos: list[dict],
-    repeticiones: list[dict],
+    repeticiones: list[Repeticion],
     salida: Path,
+    config: Configuracion = CONFIGURACION,
 ) -> Path:
     angulos_por_frame = {int(f["frame"]): f for f in angulos}
     persona_por_frame = {
@@ -148,12 +169,20 @@ def guardar_video_anotado(
             break
         puntos = puntos_por_frame.get(frame_idx, {})
         for a, b in conexiones:
-            if a in puntos and b in puntos and puntos[a][2] >= 0.5 and puntos[b][2] >= 0.5:
+            if (
+                a in puntos and b in puntos
+                and puntos[a][2] >= config.confianza_keypoints
+                and puntos[b][2] >= config.confianza_keypoints
+            ):
                 cv2.line(imagen, puntos[a][:2], puntos[b][:2], (0, 220, 255), 3)
         for indice in range(5, 17):
             if indice in puntos:
                 x, y, confianza = puntos[indice]
-                color = (0, 200, 0) if confianza >= 0.5 else (0, 0, 255)
+                color = (
+                    (0, 200, 0)
+                    if confianza >= config.confianza_keypoints
+                    else (0, 0, 255)
+                )
                 cv2.circle(imagen, (x, y), 6, color, -1)
                 cv2.putText(
                     imagen, str(indice), (x + 7, y - 7),
@@ -167,7 +196,7 @@ def guardar_video_anotado(
         )
         rep_actual = next((r for r in rangos if r[0] <= frame_idx <= r[1]), None)
         etiqueta_rep = (
-            f"Repeticion {rep_actual[2]}: {rep_actual[3].upper()}"
+            f"Repeticion {rep_actual[2]}: {_etiqueta_estado(rep_actual[3])}"
             if rep_actual else "Entre repeticiones"
         )
         cv2.putText(
@@ -198,8 +227,9 @@ def guardar_dashboard(
     video: Path,
     csv_keypoints: Path,
     angulos: list[dict],
-    repeticiones: list[dict],
+    repeticiones: list[Repeticion],
     salida: Path,
+    config: Configuracion = CONFIGURACION,
 ) -> Path:
     """Crea un vídeo dividido: persona a la izquierda, gráfica en vivo a la derecha."""
     angulos_por_frame = {int(f["frame"]): f for f in angulos}
@@ -254,7 +284,11 @@ def guardar_dashboard(
     fig, ax = plt.subplots(figsize=(ancho_grafica / 100, alto_video / 100), dpi=100)
     ax.plot(tiempo, izq_vals, label="Codo izquierdo", color="tab:blue")
     ax.plot(tiempo, der_vals, label="Codo derecho", color="tab:orange")
-    ax.set(xlabel="Tiempo (s)", ylabel="Ángulo del codo (°)", ylim=(180, 0))
+    ax.set(
+        xlabel="Tiempo (s)",
+        ylabel="Ángulo del codo (°)",
+        ylim=(config.angulo_extension_referencia_rom, 0),
+    )
     ax.set_title("Ángulo de los codos")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right")
@@ -281,12 +315,20 @@ def guardar_dashboard(
         # Dibuja keypoints 5-16.
         puntos = puntos_por_frame.get(frame_idx, {})
         for a, b in conexiones:
-            if a in puntos and b in puntos and puntos[a][2] >= 0.5 and puntos[b][2] >= 0.5:
+            if (
+                a in puntos and b in puntos
+                and puntos[a][2] >= config.confianza_keypoints
+                and puntos[b][2] >= config.confianza_keypoints
+            ):
                 cv2.line(imagen, puntos[a][:2], puntos[b][:2], (0, 220, 255), 3)
         for indice in range(5, 17):
             if indice in puntos:
                 x, y, confianza = puntos[indice]
-                color = (0, 200, 0) if confianza >= 0.5 else (0, 0, 255)
+                color = (
+                    (0, 200, 0)
+                    if confianza >= config.confianza_keypoints
+                    else (0, 0, 255)
+                )
                 cv2.circle(imagen, (x, y), 6, color, -1)
                 cv2.putText(
                     imagen, str(indice), (x + 7, y - 7),
@@ -297,7 +339,9 @@ def guardar_dashboard(
         rep_actual = next((r for r in rangos if r[0] <= frame_idx <= r[1]), None)
         color_rep = (0, 220, 0) if rep_actual and rep_actual[3] == "completa" else (0, 165, 255)
         if rep_actual:
-            etiqueta_rep = f"Rep {rep_actual[2]}/{total_reps}: {rep_actual[3].upper()}"
+            etiqueta_rep = (
+                f"Rep {rep_actual[2]}/{total_reps}: {_etiqueta_estado(rep_actual[3])}"
+            )
         elif frame_idx < (rangos[0][0] if rangos else 0):
             etiqueta_rep = "PREPARANDO..."
         elif frame_idx > (rangos[-1][1] if rangos else 0):
@@ -367,8 +411,9 @@ def guardar_interfaz(
     video: Path,
     csv_keypoints: Path,
     angulos: list[dict],
-    repeticiones: list[dict],
+    repeticiones: list[Repeticion],
     salida: Path,
+    config: Configuracion = CONFIGURACION,
 ) -> Path:
     """Genera un vídeo con la interfaz tipo app de entrenamiento."""
     angulos_por_frame = {int(f["frame"]): f for f in angulos}
@@ -432,7 +477,12 @@ def guardar_interfaz(
         der_vals = [float(f["right_elbow_deg"]) for f in frames_rep if f.get("right_elbow_deg", "")]
         bottom = max(max(izq_vals, default=180), max(der_vals, default=180))
         top = min(min(izq_vals, default=0), min(der_vals, default=0))
-        duracion = (int(rep["tope_frame"]) - inicio) / fps
+        inicio_fase = rep.get("inicio_fase_frame")
+        duracion = (
+            (int(rep["tope_frame"]) - int(inicio_fase)) / fps
+            if inicio_fase is not None
+            else ""
+        )
         stats.append({
             "rep": i, "estado": rep["estado"],
             "inicio_frame": inicio, "fin_frame": fin,
@@ -458,9 +508,12 @@ def guardar_interfaz(
     ax.set_facecolor("#1a1a1a")
     linea_izq, = ax.plot([], [], color="#2680eb", linewidth=2, label="Left elbow")
     linea_der, = ax.plot([], [], color="#ff8c32", linewidth=2, label="Right elbow")
-    ax.axhline(y=150, color="#888888", linestyle="--", linewidth=1, alpha=0.8)
+    ax.axhline(
+        y=config.umbral_extension, color="#888888", linestyle="--", linewidth=1, alpha=0.8
+    )
     ax.set(
-        xlabel="Time (s)", ylabel="Elbow angle (°)", ylim=(180, 0),
+        xlabel="Time (s)", ylabel="Elbow angle (°)",
+        ylim=(config.angulo_extension_referencia_rom, 0),
         xlim=(0, len(angulos) / fps),
     )
     ax.set_title("Elbow angle", color="white", fontsize=12)
@@ -498,7 +551,11 @@ def guardar_interfaz(
         # Dibuja el esqueleto con colores por región.
         puntos = puntos_por_frame.get(frame_idx, {})
         for (a, b), color in colores_esqueleto.items():
-            if a in puntos and b in puntos and puntos[a][2] >= 0.5 and puntos[b][2] >= 0.5:
+            if (
+                a in puntos and b in puntos
+                and puntos[a][2] >= config.confianza_keypoints
+                and puntos[b][2] >= config.confianza_keypoints
+            ):
                 inicio = (round((puntos[a][0] - x_izq) * escala), round(puntos[a][1] * escala))
                 fin = (round((puntos[b][0] - x_izq) * escala), round(puntos[b][1] * escala))
                 cv2.line(imagen, inicio, fin, color, 4)
@@ -509,7 +566,11 @@ def guardar_interfaz(
                     continue
                 x = round((x_original - x_izq) * escala)
                 y = round(y_original * escala)
-                color = (255, 255, 255) if confianza >= 0.5 else (0, 0, 255)
+                color = (
+                    (255, 255, 255)
+                    if confianza >= config.confianza_keypoints
+                    else (0, 0, 255)
+                )
                 cv2.circle(imagen, (x, y), 5, color, -1)
                 cv2.circle(imagen, (x, y), 5, (0, 0, 0), 1)
 
@@ -585,7 +646,8 @@ def guardar_interfaz(
             rom_txt = "FULL" if s["estado"] == "completa" else "PARTIAL"
             fila_txt = [
                 str(s["rep"]), rom_txt, f"{s['bottom']:.0f}\u00b0",
-                f"{s['top']:.0f}\u00b0", f"{s['pull']:.2f}s",
+                f"{s['top']:.0f}\u00b0",
+                f"{s['pull']:.2f}s" if s["pull"] != "" else "--",
             ]
             for x, txt, color in zip(xs, fila_txt,
                                      [(255, 255, 255), color_estado,

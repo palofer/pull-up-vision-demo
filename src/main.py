@@ -7,6 +7,7 @@ import cv2
 from ultralytics import YOLO
 
 from angles import (
+    Repeticion,
     agregar_metricas_repeticiones,
     calcular_angulos_codos,
     detectar_repeticiones,
@@ -14,6 +15,7 @@ from angles import (
     guardar_csv_repeticiones,
     guardar_csv_resumen,
 )
+from config import CONFIGURACION, Configuracion
 from visual import (
     guardar_grafica_angulos,
     guardar_grafica_hombros,
@@ -21,7 +23,7 @@ from visual import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-VIDEO_POR_DEFECTO = ROOT / "data/raw/video-dominadas-javi-sierra-optimizado.mp4"
+VIDEO_POR_DEFECTO = ROOT / "data/raw/javi-sierra-optimizado.mp4"
 PESOS_POR_DEFECTO = ROOT / "notebooks/yolo11s-pose.pt"
 
 
@@ -92,7 +94,8 @@ def guardar_csv_keypoints(datos: list[dict], ruta: Path) -> None:
 def ejecutar(
     video: Path = VIDEO_POR_DEFECTO,
     pesos: Path = PESOS_POR_DEFECTO,
-) -> tuple[list[dict], list[dict], list[dict], dict[str, Path]]:
+    config: Configuracion = CONFIGURACION,
+) -> tuple[list[dict], list[dict], list[Repeticion], dict[str, Path]]:
     video = Path(video).expanduser().resolve()
     if not video.is_file():
         raise FileNotFoundError(video)
@@ -123,15 +126,15 @@ def ejecutar(
             }
         )
     guardar_csv_keypoints(datos, rutas["keypoints"])
-    angulos = calcular_angulos_codos(datos)
+    angulos = calcular_angulos_codos(datos, config)
     guardar_csv_angulos(angulos, rutas["angulos"])
-    repeticiones = detectar_repeticiones(angulos, datos)
-    repeticiones = agregar_metricas_repeticiones(repeticiones, angulos, fps)
+    repeticiones = detectar_repeticiones(angulos, datos, config)
+    repeticiones = agregar_metricas_repeticiones(repeticiones, angulos, fps, config)
     guardar_csv_repeticiones(repeticiones, rutas["repeticiones"])
     guardar_csv_resumen(repeticiones, video.name, rutas["resumen"])
-    guardar_grafica_angulos(angulos, video, salida)
-    guardar_grafica_hombros(angulos, rutas["keypoints"], video, salida)
-    guardar_interfaz(video, rutas["keypoints"], angulos, repeticiones, rutas["interfaz"])
+    guardar_grafica_angulos(angulos, video, salida, config)
+    guardar_grafica_hombros(angulos, rutas["keypoints"], video, salida, config)
+    guardar_interfaz(video, rutas["keypoints"], angulos, repeticiones, rutas["interfaz"], config)
     return datos, angulos, repeticiones, rutas
 
 
