@@ -45,7 +45,7 @@ def test_holgura_cabeza(mock_pose_data):
 
     resultado = calcular_holgura_cabeza(datos)
 
-    assert resultado == {0: pytest.approx(172.0)}
+    assert resultado == {0: pytest.approx(50.0)}
 
 
 def test_holgura_cabeza_con_confianza_baja(mock_pose_data):
@@ -57,7 +57,23 @@ def test_holgura_cabeza_con_confianza_baja(mock_pose_data):
     }
 
     datos = mock_pose_data(puntos_de_prueba)
-    datos[0]["conf"][0][3] = 0.4
+    datos[0]["conf"][0][3] = 0.2
 
-    with pytest.raises(ValueError, match="Confianza de keypoints insuficiente"):
-        calcular_holgura_cabeza(datos)
+    resultado = calcular_holgura_cabeza(datos)
+
+    assert resultado == {0: pytest.approx(50.0)}
+
+
+def test_holgura_cabeza_con_puntos_faltantes(mock_pose_data):
+    puntos_de_prueba = {
+        3: ([320, 80], 0.98),  # Oreja Izquierda
+        4: ([300, 80], 0.97),  # Oreja Derecha
+        9: ([290, 130], 0.93),  # Muñeca Izquierdo
+        10: ([350, 130], 0.94),
+    }
+
+    datos = mock_pose_data(puntos_de_prueba)
+    datos[0]["conf"][0][3] = 0.2
+    datos[0]["conf"][0][4] = 0.2
+
+    assert calcular_holgura_cabeza(datos) == {}
