@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pull-up analysis</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: __COLOR_THRESHOLD__;
+      --muted: __COLOR_EXTENSION__;
+      --line: #e5e7eb;
+      --paper: #ffffff;
+      --canvas: #f3f4f6;
+      --axis-text: __COLOR_AXIS_TEXT__;
+      --blue: __COLOR_SERIES__;
+      --bar: __COLOR_BAR__;
+      --green: __COLOR_COMPLETE__;
+      --amber: __COLOR_PARTIAL__;
+      --purple: __COLOR_NO_EXTENSION__;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; overflow: hidden;
+      display: flex; flex-direction: column;
+      color: var(--ink); background: var(--canvas);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }
+    .layout {
+      flex: 1; min-height: 0;
+      display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px;
+      padding: 14px 18px;
+    }
+    .card { background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 2px 8px rgb(17 24 39 / 3%); }
+    .video-card { width: var(--video-width, 360px); height: 100%; min-height: 0;
+      display: flex; flex-direction: column; overflow: hidden; }
+    .video-area { position: relative; flex: 1; min-height: 0; }
+    .video-stage { position: absolute; inset: 0; overflow: hidden; background: #111827; }
+    .video-stage video, .video-stage canvas {
+      position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+    }
+    .video-stage video { object-fit: cover; }
+    .video-stage canvas { pointer-events: none; }
+    .video-error {
+      position: absolute; inset: 0; display: none; place-items: center; padding: 28px;
+      color: white; background: rgb(17 24 39 / 88%); text-align: center; font-size: 14px;
+    }
+    .video-meta {
+      flex: none; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 10px 14px; color: var(--muted); font-size: 12px;
+    }
+    .panel {
+      min-width: 0; min-height: 0;
+      display: grid; grid-template-rows: auto minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 10px;
+    }
+    .summary {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 28px;
+      padding: 12px 16px; color: var(--muted); font-size: 12px;
+    }
+    .summary strong { margin-left: 6px; color: var(--ink); font-size: 16px; font-weight: 740; }
+    .secondary { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+    .chart-card { min-height: 0; display: flex; flex-direction: column; padding: 12px 14px; }
+    .chart-title { margin: 0; font-size: 13px; font-weight: 700; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px;
+      color: var(--axis-text); font-size: 10px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 16px; height: 0; border-top: 2px solid var(--blue); }
+    .swatch.bar { border-top-color: var(--bar); }
+    .swatch.threshold { border-top-color: var(--ink); }
+    .swatch.right { border-top-color: #f59e0b; }
+    .swatch.extension { border-top: 2px dashed var(--muted); }
+    .chart-box { position: relative; flex: 1; min-height: 0; margin-top: 6px; }
+    .chart-box canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+    .chart-note { min-height: 14px; margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .table-card { padding: 12px 14px; }
+    .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      margin: 0 0 6px; }
+    .card-head small { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 11px; }
+    th { padding: 4px 6px; color: var(--muted); text-align: left; font-size: 9px;
+      letter-spacing: .06em; text-transform: uppercase; font-weight: 650; }
+    td { padding: 4px 6px; border-top: 1px solid #f1f2f4; text-align: center; }
+    .state-pill { display: inline-block; padding: 2px 6px; border-radius: 999px;
+      font-size: 9px; font-weight: 700; }
+    .state-pill.complete { color: var(--green); background: #dcfce7; }
+    .state-pill.partial { color: var(--amber); background: #fef3c7; }
+    .state-pill.no_extension { color: var(--purple); background: #f3e8ff; }
+    .empty-row { color: var(--muted); text-align: center; }
+    footer { flex: none; padding: 0 20px 8px; color: var(--muted); text-align: center; font-size: 10px; }
+    @media (max-width: 900px) {
+      body { height: auto; overflow: visible; }
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      .video-card { width: 100%; height: auto; }
+      .video-area { flex: none; }
+      .video-stage { position: relative; inset: auto; width: 100%; height: auto;
+        aspect-ratio: var(--crop-ratio, 9 / 16); }
+      .panel { grid-template-rows: none; }
+      .chart-box { height: 220px; flex: none; }
+      .secondary { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <main class="layout">
+    <section class="card video-card">
+      <div class="video-area">
+        <div class="video-stage" id="video-stage">
+          <video id="video" controls playsinline preload="metadata" src="__VIDEO_SRC__"></video>
+          <canvas id="skeleton" aria-hidden="true"></canvas>
+          <div class="video-error" id="video-error">Could not open the video.<br>Check that the original file is still in its location.</div>
+        </div>
+      </div>
+      <div class="video-meta"><span>Estimated skeleton · COCO-17 keypoints</span><span id="time-readout">00:00.0</span></div>
+    </section>
+    <aside class="panel">
+      <section class="card summary">
+        <span>Elbows<strong id="live-angle">—</strong></span>
+        <span>Avg. ascent<strong id="avg-pull">—</strong></span>
+        <span>Avg. descent<strong id="avg-lower">—</strong></span>
+      </section>
+      <section class="card chart-card">
+        <h2 class="chart-title" id="chart-title"></h2>
+        <div class="chart-legend">
+          <span class="legend-item"><i class="swatch"></i><span id="legend-series"></span></span>
+          <span class="legend-item"><i class="swatch bar"></i><span id="legend-bar"></span></span>
+          <span class="legend-item"><i class="swatch threshold"></i><span id="legend-threshold"></span></span>
+        </div>
+        <div class="chart-box"><canvas id="chart" aria-label="Ear height chart"></canvas></div>
+        <div class="chart-note" id="chart-note">Estimated pose data; pixel values depend on the recording.</div>
+      </section>
+      <div class="secondary">
+        <section class="card chart-card">
+          <h2 class="chart-title">Elbow angle</h2>
+          <div class="chart-legend">
+            <span class="legend-item"><i class="swatch"></i>Left</span>
+            <span class="legend-item"><i class="swatch right"></i>Right</span>
+            <span class="legend-item"><i class="swatch extension"></i>Extension</span>
+          </div>
+          <div class="chart-box"><canvas id="elbow-chart" aria-label="Elbow angle chart"></canvas></div>
+        </section>
+        <section class="card chart-card">
+          <h2 class="chart-title">Shoulder position</h2>
+          <div class="chart-legend">
+            <span class="legend-item"><i class="swatch"></i>Left</span>
+            <span class="legend-item"><i class="swatch right"></i>Right</span>
+            <span class="legend-item"><i class="swatch bar"></i>Grip (0 px)</span>
+          </div>
+          <div class="chart-box"><canvas id="shoulder-chart" aria-label="Shoulder vertical position chart"></canvas></div>
+        </section>
+      </div>
+      <section class="card table-card">
+        <h2 class="card-head chart-title">Repetitions <small id="table-count">0 shown</small></h2>
+        <div class="table-wrap">
+          <table>
+            <tbody id="rep-rows"><tr><td class="empty-row">No completed repetitions yet</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+  </main>
+  <footer>Experimental visual estimate; not a medical assessment or an exact measure of technique.</footer>
+  <script id="analysis-data" type="application/json">__DATA__</script>
+  <script>
+    "use strict";
+    const DATA = JSON.parse(document.getElementById("analysis-data").textContent);
+    const video = document.getElementById("video");
+    const skeleton = document.getElementById("skeleton");
+    const skeletonContext = skeleton.getContext("2d");
+    const chart = document.getElementById("chart");
+    const chartContext = chart.getContext("2d");
+    const elbowChart = document.getElementById("elbow-chart");
+    const elbowContext = elbowChart.getContext("2d");
+    const shoulderChart = document.getElementById("shoulder-chart");
+    const shoulderContext = shoulderChart.getContext("2d");
+    const chartSpec = DATA.chart;
+    const chartColors = chartSpec.colors;
+    const stateColors = chartColors.states;
+    const stateLabels = chartSpec.labels.states;
+    const crop = DATA.crop;
+    const COLOR_LEFT = chartColors.series;
+    const COLOR_RIGHT = "#f59e0b";
+    const connections = [
+      [5, 6, "#ffffff"], [5, 7, "#22d3ee"], [7, 9, "#22d3ee"],
+      [6, 8, "#f59e0b"], [8, 10, "#f59e0b"], [5, 11, "#ffffff"],
+      [6, 12, "#ffffff"], [11, 12, "#ffffff"], [11, 13, "#f472b6"],
+      [13, 15, "#f472b6"], [12, 14, "#ef4444"], [14, 16, "#ef4444"]
+    ];
+    let lastTableCount = -1;
+
+    function videoOffset(start, total, visible) {
+      return total > visible ? (start / (total - visible)) * 100 : 50;
+    }
+    document.documentElement.style.setProperty("--crop-ratio", `${crop.width} / ${crop.height}`);
+    video.style.objectPosition = `${videoOffset(crop.x, DATA.width, crop.width)}% ${videoOffset(crop.y, DATA.height, crop.height)}%`;
+    document.getElementById("chart-title").textContent = chartSpec.labels.title;
+    document.getElementById("legend-series").textContent = chartSpec.labels.series;
+    document.getElementById("legend-bar").textContent = chartSpec.labels.bar;
+    document.getElementById("legend-threshold").textContent = chartSpec.labels.threshold;
+    document.getElementById("avg-pull").textContent = formatSeconds(DATA.averages.pull);
+    document.getElementById("avg-lower").textContent = formatSeconds(DATA.averages.lower);
+
+    function fitVideoCard() {
+      const area = document.querySelector(".video-area");
+      if (!window.matchMedia("(min-width: 901px)").matches || !area.clientHeight) return;
+      const width = area.clientHeight * crop.width / crop.height;
+      document.documentElement.style.setProperty("--video-width", `${Math.round(width)}px`);
+    }
+    function formatDegrees(value) {
+      return Number.isFinite(value) ? `${value.toFixed(0)}°` : "—";
+    }
+    function formatSeconds(value) {
+      return Number.isFinite(value) ? `${value.toFixed(2)} s` : "—";
+    }
+    function frameIndex() {
+      return Math.min(DATA.frames.length - 1, Math.max(0, Math.floor(video.currentTime * DATA.fps)));
+    }
+    function sizeCanvas(canvas, context) {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(rect.width * ratio);
+      canvas.height = Math.round(rect.height * ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { width: rect.width, height: rect.height };
+    }
+    function drawSkeleton() {
+      const size = sizeCanvas(skeleton, skeletonContext);
+      if (!size || !DATA.width || !DATA.height) return;
+      const scaleX = size.width / crop.width;
+      const scaleY = size.height / crop.height;
+      const points = DATA.frames[frameIndex()]?.keypoints || [];
+      skeletonContext.clearRect(0, 0, size.width, size.height);
+      skeletonContext.save();
+      skeletonContext.scale(scaleX, scaleY);
+      skeletonContext.translate(-crop.x, -crop.y);
+      for (const [a, b, color] of connections) {
+        const start = points[a], end = points[b];
+        if (!start || !end || start[2] < DATA.confidence || end[2] < DATA.confidence) continue;
+        skeletonContext.beginPath();
+        skeletonContext.moveTo(start[0], start[1]);
+        skeletonContext.lineTo(end[0], end[1]);
+        skeletonContext.strokeStyle = color;
+        skeletonContext.lineWidth = 4 / Math.max(scaleX, scaleY);
+        skeletonContext.stroke();
+      }
+      for (let i = 5; i <= 16; i += 1) {
+        const point = points[i];
+        if (!point) continue;
+        skeletonContext.beginPath();
+        skeletonContext.arc(point[0], point[1], 5 / Math.max(scaleX, scaleY), 0, 2 * Math.PI);
+        skeletonContext.fillStyle = point[2] >= DATA.confidence ? "#ffffff" : "#ef4444";
+        skeletonContext.fill();
+        skeletonContext.strokeStyle = "#111827";
+        skeletonContext.lineWidth = 1 / Math.max(scaleX, scaleY);
+        skeletonContext.stroke();
+      }
+      skeletonContext.restore();
+    }
+
+    function finalizedRepetitions(currentFrame) {
+      return DATA.repetitions.filter((rep) => rep.endFrame <= currentFrame);
+    }
+    function drawChart() {
+      const size = sizeCanvas(chart, chartContext);
+      if (!size) return;
+      const { width, height } = size;
+      const ctx = chartContext;
+      const margin = { left: 48, right: 12, top: 14, bottom: 42 };
+      const plot = { left: margin.left, right: width - margin.right,
+        top: margin.top, bottom: height - margin.bottom };
+      const plotWidth = plot.right - plot.left, plotHeight = plot.bottom - plot.top;
+      const samples = DATA.frames.map((frame) => frame.earsAboveBarPx).filter(Number.isFinite);
+      if (!samples.length) {
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = chartColors.tickText;
+        ctx.font = "12px system-ui";
+        ctx.fillText("Not enough ear and wrist data.", 12, 32);
+        return;
+      }
+      const minY = chartSpec.yMin;
+      const maxY = chartSpec.yMax;
+      const lastFrame = Math.max(1, DATA.frames.length - 1);
+      const x = (frame) => plot.left + (frame / lastFrame) * plotWidth;
+      const y = (value) => plot.bottom - ((value - minY) / (maxY - minY)) * plotHeight;
+      ctx.clearRect(0, 0, width, height);
+
+      for (const rep of finalizedRepetitions(frameIndex())) {
+        const left = x(rep.startFrame), right = x(rep.endFrame);
+        ctx.fillStyle = `${stateColors[rep.state]}18`;
+        ctx.fillRect(left, plot.top, Math.max(1, right - left), plotHeight);
+        ctx.fillStyle = stateColors[rep.state];
+        ctx.font = "600 10px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(String(rep.number), (left + right) / 2, plot.top + 12);
+      }
+
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.strokeStyle = chartColors.grid;
+      ctx.lineWidth = 1;
+      for (let tick = 0; tick <= 4; tick += 1) {
+        const value = minY + ((maxY - minY) * tick) / 4;
+        const tickY = y(value);
+        ctx.beginPath(); ctx.moveTo(plot.left, tickY); ctx.lineTo(plot.right, tickY); ctx.stroke();
+        ctx.fillStyle = chartColors.tickText;
+        ctx.fillText(`${Math.round(value)}`, plot.left - 7, tickY);
+      }
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "center";
+      for (let tick = 0; tick <= 4; tick += 1) {
+        const frame = (lastFrame * tick) / 4;
+        const seconds = frame / DATA.fps;
+        const tickX = x(frame);
+        ctx.beginPath(); ctx.moveTo(tickX, plot.top); ctx.lineTo(tickX, plot.bottom); ctx.stroke();
+        ctx.fillStyle = chartColors.tickText;
+        ctx.fillText(`${seconds.toFixed(1)}s`, tickX, height - 19);
+      }
+      ctx.save();
+      ctx.fillStyle = chartColors.axisText;
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(chartSpec.labels.xAxis, (plot.left + plot.right) / 2, height - 2);
+      ctx.translate(11, (plot.top + plot.bottom) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(chartSpec.labels.yAxis, 0, 0);
+      ctx.restore();
+
+      function referenceLine(value, color, dashed) {
+        if (!Number.isFinite(value)) return;
+        ctx.save(); ctx.beginPath(); ctx.setLineDash(dashed ? [5, 4] : []);
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        ctx.moveTo(plot.left, y(value)); ctx.lineTo(plot.right, y(value)); ctx.stroke(); ctx.restore();
+      }
+      referenceLine(0, chartColors.bar, false);
+      referenceLine(DATA.thresholdAboveBar, chartColors.threshold, false);
+
+      ctx.beginPath();
+      ctx.strokeStyle = chartColors.series; ctx.lineWidth = 2;
+      let drawing = false;
+      const visibleFrame = frameIndex();
+      for (let index = 0; index <= visibleFrame; index += 1) {
+        const frame = DATA.frames[index];
+        const value = frame.earsAboveBarPx;
+        if (!Number.isFinite(value)) { drawing = false; continue; }
+        if (!drawing) { ctx.moveTo(x(index), y(value)); drawing = true; }
+        else ctx.lineTo(x(index), y(value));
+      }
+      ctx.stroke();
+
+      const current = DATA.frames[frameIndex()]?.earsAboveBarPx;
+      if (Number.isFinite(current)) {
+        ctx.beginPath(); ctx.arc(x(frameIndex()), y(current), 4, 0, 2 * Math.PI);
+        ctx.fillStyle = chartColors.series; ctx.fill(); ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+      }
+      const cursorX = x(frameIndex());
+      ctx.save(); ctx.beginPath(); ctx.setLineDash([3, 3]); ctx.strokeStyle = chartColors.cursor;
+      ctx.moveTo(cursorX, plot.top); ctx.lineTo(cursorX, plot.bottom); ctx.stroke(); ctx.restore();
+      document.getElementById("chart-note").textContent = `0 px = grip · threshold +${DATA.thresholdAboveBar} px`;
+    }
+
+    function drawLineChart(canvas, context, { min, max, format, series, references }) {
+      const size = sizeCanvas(canvas, context);
+      if (!size) return;
+      const { width, height } = size;
+      const ctx = context;
+      const plot = { left: 40, right: width - 8, top: 8, bottom: height - 18 };
+      const plotWidth = plot.right - plot.left, plotHeight = plot.bottom - plot.top;
+      const lastFrame = Math.max(1, DATA.frames.length - 1);
+      const x = (frame) => plot.left + (frame / lastFrame) * plotWidth;
+      const y = (value) => plot.bottom - ((value - min) / (max - min)) * plotHeight;
+      ctx.clearRect(0, 0, width, height);
+
+      for (const rep of finalizedRepetitions(frameIndex())) {
+        const left = x(rep.startFrame), right = x(rep.endFrame);
+        ctx.fillStyle = `${stateColors[rep.state]}18`;
+        ctx.fillRect(left, plot.top, Math.max(1, right - left), plotHeight);
+      }
+
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.strokeStyle = chartColors.grid;
+      ctx.lineWidth = 1;
+      for (let tick = 0; tick <= 4; tick += 1) {
+        const value = min + ((max - min) * tick) / 4;
+        ctx.beginPath(); ctx.moveTo(plot.left, y(value)); ctx.lineTo(plot.right, y(value)); ctx.stroke();
+        ctx.fillStyle = chartColors.tickText;
+        ctx.fillText(format(value), plot.left - 6, y(value));
+      }
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left";
+      ctx.fillText("0 s", plot.left, height - 4);
+      ctx.textAlign = "right";
+      ctx.fillText(`${(lastFrame / DATA.fps).toFixed(1)} s`, plot.right, height - 4);
+
+      for (const { value, color, dashed } of references) {
+        ctx.save(); ctx.beginPath(); ctx.setLineDash(dashed ? [5, 4] : []);
+        ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+        ctx.moveTo(plot.left, y(value)); ctx.lineTo(plot.right, y(value));
+        ctx.stroke(); ctx.restore();
+      }
+
+      const visibleFrame = frameIndex();
+      for (const [field, color] of series) {
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+        let drawing = false;
+        for (let index = 0; index <= visibleFrame; index += 1) {
+          const value = DATA.frames[index][field];
+          if (!Number.isFinite(value)) { drawing = false; continue; }
+          if (!drawing) { ctx.moveTo(x(index), y(value)); drawing = true; }
+          else ctx.lineTo(x(index), y(value));
+        }
+        ctx.stroke();
+      }
+
+      ctx.save(); ctx.beginPath(); ctx.setLineDash([3, 3]); ctx.strokeStyle = chartColors.cursor;
+      ctx.moveTo(x(visibleFrame), plot.top); ctx.lineTo(x(visibleFrame), plot.bottom);
+      ctx.stroke(); ctx.restore();
+    }
+    function drawElbowChart() {
+      drawLineChart(elbowChart, elbowContext, {
+        // Inverted on purpose: 180° (extended) at the bottom, 0° (flexed) at the top.
+        min: 180,
+        max: 0,
+        format: (value) => `${Math.round(value)}°`,
+        series: [["leftElbow", COLOR_LEFT], ["rightElbow", COLOR_RIGHT]],
+        references: [{ value: DATA.extensionAngle, color: chartColors.extension, dashed: true }],
+      });
+    }
+    function drawShoulderChart() {
+      drawLineChart(shoulderChart, shoulderContext, {
+        min: DATA.shoulderRange.min,
+        max: DATA.shoulderRange.max,
+        format: (value) => `${Math.round(value)}`,
+        series: [["leftShoulderPx", COLOR_LEFT], ["rightShoulderPx", COLOR_RIGHT]],
+        references: [{ value: 0, color: chartColors.bar, dashed: false }],
+      });
+    }
+
+    function statePill(state) {
+      const pill = document.createElement("span");
+      pill.className = `state-pill ${state}`;
+      pill.textContent = stateLabels[state] || state;
+      return pill;
+    }
+    function renderTable(reps) {
+      const body = document.getElementById("rep-rows");
+      body.replaceChildren();
+      if (!reps.length) {
+        const row = body.insertRow(); const cell = row.insertCell();
+        cell.className = "empty-row";
+        cell.textContent = "No completed repetitions yet";
+        return;
+      }
+      const rows = [
+        ["#", (rep) => String(rep.number)],
+        ["State", (rep) => statePill(rep.state)],
+        ["Bottom", (rep) => formatDegrees(rep.bottom)],
+        ["Top", (rep) => formatDegrees(rep.top)],
+        ["Ascent", (rep) => formatSeconds(rep.pull)],
+      ];
+      for (const [label, renderValue] of rows) {
+        const row = body.insertRow();
+        const header = document.createElement("th");
+        header.textContent = label;
+        row.append(header);
+        for (const rep of reps) row.insertCell().append(renderValue(rep));
+      }
+    }
+    function updateSummary() {
+      const currentFrame = frameIndex();
+      const reps = finalizedRepetitions(currentFrame);
+      const frame = DATA.frames[currentFrame];
+      const angles = [frame?.leftElbow, frame?.rightElbow].filter(Number.isFinite);
+      document.getElementById("live-angle").textContent = angles.length
+        ? `${(angles.reduce((sum, value) => sum + value, 0) / angles.length).toFixed(0)}°`
+        : "—";
+      document.getElementById("table-count").textContent = `${reps.length} shown`;
+      if (reps.length === lastTableCount) return;
+      lastTableCount = reps.length;
+      renderTable(reps);
+    }
+
+    function render() {
+      fitVideoCard();
+      const seconds = video.currentTime || 0;
+      const minutes = Math.floor(seconds / 60);
+      document.getElementById("time-readout").textContent =
+        `${String(minutes).padStart(2, "0")}:${(seconds % 60).toFixed(1).padStart(4, "0")}`;
+      drawSkeleton(); drawChart(); drawElbowChart(); drawShoulderChart(); updateSummary();
+    }
+    function renderPlaybackFrame() {
+      render();
+      if (!video.paused) {
+        if (typeof video.requestVideoFrameCallback === "function") {
+          video.requestVideoFrameCallback(renderPlaybackFrame);
+        } else {
+          requestAnimationFrame(renderPlaybackFrame);
+        }
+      }
+    }
+    video.addEventListener("loadedmetadata", render);
+    video.addEventListener("error", () => { document.getElementById("video-error").style.display = "grid"; });
+    ["timeupdate", "seeked", "pause"].forEach((event) => video.addEventListener(event, render));
+    video.addEventListener("play", renderPlaybackFrame);
+    window.addEventListener("resize", render);
+    if ("ResizeObserver" in window) new ResizeObserver(render).observe(document.querySelector(".layout"));
+    render();
+  </script>
+</body>
+</html>
