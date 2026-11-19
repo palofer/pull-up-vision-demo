@@ -26,7 +26,6 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 - [x] Usar la altura de las orejas respecto a la referencia mediana de las muñecas (máxima del ciclo ≥ 20 px) como criterio de completa/parcial; conservar los ángulos de codo como dato de técnica y referencia visual de extensión.
 - [x] Usar `atan2` para el cálculo angular.
 - [x] Expresar el rango de movimiento (ROM) por brazo y como promedio bilateral, además de la clasificación completa/parcial; medir desde el último fotograma extendido observado y usar 180°–55° como referencia provisional, sin limitar el resultado a 100 %. Si no se observó ese inicio, dejar el ROM vacío en vez de estimarlo.
-- [~] Graficar la diferencia vertical entre hombros; el visor ya muestra la posición de cada hombro y `shoulder-position.png` la diferencia, pero falta definir y validar el umbral de alerta.
 - [x] Exportar por separado el tiempo de subida (desde el último fotograma extendido observado hasta el tope) y bajada (del tope al retorno a extensión). Dejar la subida vacía si falta el inicio observado y la bajada si no hay retorno.
 - [x] Validar los umbrales con varios vídeos etiquetados manualmente; los valores actuales son experimentales, no estándares universales. Evidencia: `data/labels/manual-repetition-labels.csv` (34 repeticiones etiquetadas en 6 grabaciones).
 
@@ -34,7 +33,6 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 
 - [x] Separar la orquestación, los cálculos de ángulos/repeticiones y la visualización en `src/main.py`, `src/angles.py`, `src/visual.py` (gráficas estáticas) y `src/render.py` (vídeo MP4).
 - [x] Evitar números mágicos: centralizar confianza `0.5`, flexión `55°`, extensión `150°`, inicio `130°` y los demás umbrales de análisis en `src/config.py`, y las constantes de layout en `VisualConfig`.
-- [ ] Evaluar si separar la inferencia y el manejo de vídeo en módulos dedicados (`pose_extractor.py` y `video_processor.py`) aporta claridad sin sobreingeniería.
 - [x] Tolerar fotogramas sin detecciones al calcular ángulos y al dibujar el HUD.
 - [x] Completar type hints y docstrings de todas las funciones públicas.
 
@@ -49,7 +47,5 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 
 - [x] Exportar keypoints, ángulos y clasificación de cada repetición a CSV.
 - [x] Exportar un resumen agregado con recuentos de repeticiones, ROM porcentual y tempo.
-- [ ] Exportar alertas de asimetría tras definir y validar el umbral.
 - [x] Mostrar un visor con esqueleto sin cajas delimitadoras, una gráfica de orejas con línea de umbral de superación, gráficas de codos y hombros a mitad de ancho, y una tabla de repeticiones; todo sin scroll en 1440×800 px.
 - [x] Sincronizar vídeo, esqueleto y gráficas; actualizar la tabla y sombrear repeticiones solo cuando terminan, sin revelar resultados futuros.
-- [ ] Verificar legibilidad y rendimiento de la interfaz en vídeos de distintas resoluciones y orientaciones.
