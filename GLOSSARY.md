@@ -28,7 +28,7 @@ Distancia vertical entre las orejas y la referencia del agarre; es positiva cuan
 _Avoid_: Holgura cabeza–muñecas
 
 **Superación del agarre**:
-Posición en la que las orejas quedan al menos 20 px por encima de la referencia vertical del agarre.
+Posición en la que las orejas quedan al menos 25 px por encima de la referencia vertical del agarre.
 
 **Extensión**:
 Posición extendida de los brazos, determinada por el ángulo de los codos; es distinta del criterio para que una repetición sea completa.

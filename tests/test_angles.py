@@ -104,11 +104,11 @@ def test_detect_and_enrich_repetitions_complete_partial_and_no_extension(mock_po
     angle_trajectories = [
         (0, 160.0, 160.0, 150.0),  # hang (ears at y=150, grip at y=100 => -50px)
         (1, 120.0, 122.0, 110.0),  # pull start
-        (2, 55.0, 55.0, 70.0),     # peak 1 (ears at y=70 => +30px above grip >= 20px)
+        (2, 55.0, 55.0, 70.0),     # peak 1 (ears at y=70 => +30px above grip >= 25px)
         (3, 110.0, 115.0, 110.0),  # lowering
         (4, 160.0, 160.0, 150.0),  # return to extension (end of rep 1, onset of rep 2)
         (5, 115.0, 118.0, 120.0),  # pull 2 start
-        (6, 80.0, 85.0, 95.0),     # peak 2 (ears at y=95 => +5px above grip < 20px)
+        (6, 80.0, 85.0, 95.0),     # peak 2 (ears at y=95 => +5px above grip < 25px)
         (7, 125.0, 125.0, 120.0),  # lowering
         (8, 155.0, 155.0, 150.0),  # return to extension (end of rep 2, onset of rep 3)
         (9, 110.0, 110.0, 100.0),  # pull 3 start
@@ -154,7 +154,7 @@ def test_detect_and_enrich_repetitions_complete_partial_and_no_extension(mock_po
     assert enriched[0]["descent_time_s"] == pytest.approx(0.2)
     assert enriched[0]["rom_pct"] == pytest.approx(84.0)
 
-    # Rep 2: partial (max_clearance_px = 5.0 < 20.0)
+    # Rep 2: partial (max_clearance_px = 5.0 < 25.0)
     assert enriched[1]["max_clearance_px"] == pytest.approx(5.0)
     assert enriched[1]["ascent_time_s"] == pytest.approx(0.2)
     assert enriched[1]["descent_time_s"] == pytest.approx(0.2)

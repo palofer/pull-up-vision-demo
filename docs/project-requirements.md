@@ -23,7 +23,7 @@ Crear un prototipo reproducible que analice vídeos de dominadas, estime el movi
 ## Requisitos de biomecánica
 
 - [x] Calcular el ángulo del codo usando hombro, codo y muñeca.
-- [x] Usar la altura de las orejas respecto a la referencia mediana de las muñecas (máxima del ciclo ≥ 20 px) como criterio de completa/parcial; conservar los ángulos de codo como dato de técnica y referencia visual de extensión.
+- [x] Usar la altura de las orejas respecto a la referencia mediana de las muñecas (máxima del ciclo ≥ 25 px) como criterio de completa/parcial; conservar los ángulos de codo como dato de técnica y referencia visual de extensión.
 - [x] Usar `atan2` para el cálculo angular.
 - [x] Expresar el rango de movimiento (ROM) por brazo y como promedio bilateral, además de la clasificación completa/parcial; medir desde el último fotograma extendido observado y usar 180°–55° como referencia provisional, sin limitar el resultado a 100 %. Si no se observó ese inicio, dejar el ROM vacío en vez de estimarlo.
 - [x] Exportar por separado el tiempo de subida (desde el último fotograma extendido observado hasta el tope) y bajada (del tope al retorno a extensión). Dejar la subida vacía si falta el inicio observado y la bajada si no hay retorno.

@@ -86,8 +86,8 @@ Code architecture:
 - **Cycle Boundaries (Elbow State Machine):** A repetition arms when both elbows extend past `extension_threshold_deg` (`150°`), initiates once either elbow flexes below `initiation_threshold_deg` (`130°`), tracks peak flexion (`top`), and closes when both elbows return to extension (`≥ 150°`).
 - **Top Clearance (Ear Height vs. Grip):** Because COCO-17 lacks a chin keypoint, ear height (`left_ear`, `right_ear`) is measured relative to the fixed grip reference (median vertical coordinate of valid `left_wrist` and `right_wrist` detections).
 - **Repetition States:**
-  - `complete`: Cycle returns to full extension (`≥ 150°`) and ears clear the grip reference by at least `+20 px`.
-  - `partial`: Cycle returns to extension (`≥ 150°`) but fails to reach the `+20 px` ear clearance threshold.
+  - `complete`: Cycle returns to full extension (`≥ 150°`) and ears clear the grip reference by at least `+25 px`.
+  - `partial`: Cycle returns to extension (`≥ 150°`) but fails to reach the `+25 px` ear clearance threshold.
   - `no_extension`: Athlete initiates a pull, but the clip ends (or the athlete drops off the bar) before returning to elbow extension. Tracked separately from partial reps.
 
 ---
