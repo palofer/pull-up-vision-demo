@@ -34,7 +34,9 @@ only-include = [
     "src/main.py",
     "src/angles.py",
     "src/config.py",
+    "src/pose.py",
     "src/visual.py",
+    "src/render.py",
     "src/viewer.py",
     "src/viewer-template.html",
 ]

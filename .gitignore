@@ -39,8 +39,6 @@ Thumbs.db
 
 # --- Local agent & internal docs ---
 /AGENTS.md
-/GLOSSARY.md
-/docs/
+/docs/agents/
 /notebooks/
-/data/labels/
 /.scratch/

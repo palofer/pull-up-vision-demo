@@ -13,10 +13,9 @@ from urllib.parse import quote
 import cv2
 import numpy as np
 
-from angles import Repetition, RepetitionState
-from config import DEFAULT_CONFIG, AnalysisConfig
-
-AngleRow = dict[str, int | float | str]
+from angles import AngleRow, Repetition, RepetitionState
+from config import DEFAULT_CONFIG, DEFAULT_VISUAL_CONFIG, AnalysisConfig
+from pose import EAR_INDICES, KEYPOINT_COUNT, SHOULDER_INDICES, WRIST_INDICES
 
 
 @dataclass(frozen=True)
@@ -32,7 +31,7 @@ class ViewerInput:
 
 class _ChartColors(TypedDict):
     series: str
-    bar: str
+    grip: str
     threshold: str
     extension: str
     cursor: str
@@ -47,7 +46,7 @@ class _ChartLabels(TypedDict):
     xAxis: str
     yAxis: str
     series: str
-    bar: str
+    grip: str
     threshold: str
     states: dict[RepetitionState, str]
 
@@ -61,7 +60,7 @@ class _ViewerChart(TypedDict):
 
 class _ViewerFrame(TypedDict):
     frame: int
-    earsAboveBarPx: float | None
+    earClearancePx: float | None
     leftShoulderPx: float | None
     rightShoulderPx: float | None
     leftElbow: float | None
@@ -76,13 +75,8 @@ class _ViewerRepetition(TypedDict):
     state: RepetitionState
     bottom: float | None
     top: float | None
-    pull: float | None
-    lower: float | None
-
-
-class _ViewerAverages(TypedDict):
-    pull: float | None
-    lower: float | None
+    ascent: float | None
+    descent: float | None
 
 
 class _ViewerRange(TypedDict):
@@ -102,20 +96,19 @@ class ViewerData(TypedDict):
     width: int
     height: int
     crop: _ViewerCrop
-    barHeight: float | None
-    thresholdAboveBar: float
+    gripHeight: float | None
+    clearanceThresholdPx: float
     extensionAngle: float
     confidence: float
     chart: _ViewerChart
     frames: list[_ViewerFrame]
     repetitions: list[_ViewerRepetition]
-    averages: _ViewerAverages
     shoulderRange: _ViewerRange
 
 
 CHART_PALETTE: _ChartColors = {
     "series": "#2563eb",
-    "bar": "#d1d5db",
+    "grip": "#d1d5db",
     "threshold": "#111827",
     "extension": "#6b7280",
     "cursor": "#ef4444",
@@ -137,13 +130,16 @@ STATE_LABELS: dict[RepetitionState, str] = {
 
 def _chart_specification(frames: list[_ViewerFrame], threshold: float) -> _ViewerChart:
     values = [
-        float(frame["earsAboveBarPx"])
+        float(frame["earClearancePx"])
         for frame in frames
-        if frame["earsAboveBarPx"] is not None
+        if frame["earClearancePx"] is not None
     ]
     references = [0.0, threshold, *values]
     minimum, maximum = min(references), max(references)
-    margin = max(8.0, (maximum - minimum) * 0.1)
+    margin = max(
+        DEFAULT_VISUAL_CONFIG.chart_margin_px,
+        (maximum - minimum) * DEFAULT_VISUAL_CONFIG.chart_margin_ratio,
+    )
     return {
         "yMin": minimum - margin,
         "yMax": maximum + margin,
@@ -153,7 +149,7 @@ def _chart_specification(frames: list[_ViewerFrame], threshold: float) -> _Viewe
             "xAxis": "Time (s)",
             "yAxis": "Distance from grip (px)",
             "series": "Ears",
-            "bar": "Grip (0 px)",
+            "grip": "Grip (0 px)",
             "threshold": f"Above grip (+{threshold:g} px)",
             "states": STATE_LABELS,
         },
@@ -168,7 +164,10 @@ def _shoulder_range(frames: list[_ViewerFrame]) -> _ViewerRange:
         if value is not None
     ]
     minimum, maximum = min([0.0, *values]), max([0.0, *values])
-    margin = max(8.0, (maximum - minimum) * 0.1)
+    margin = max(
+        DEFAULT_VISUAL_CONFIG.chart_margin_px,
+        (maximum - minimum) * DEFAULT_VISUAL_CONFIG.chart_margin_ratio,
+    )
     return {"min": minimum - margin, "max": maximum + margin}
 
 
@@ -195,7 +194,7 @@ def _float_or_none(value: object) -> float | None:
 
 
 def _repetition_statistics(
-    repetitions: list[Repetition], angles_by_frame: dict[int, AngleRow], fps: float
+    repetitions: list[Repetition], angles_by_frame: dict[int, AngleRow]
 ) -> list[_ViewerRepetition]:
     stats: list[_ViewerRepetition] = []
     for number, rep in enumerate(repetitions, start=1):
@@ -209,9 +208,6 @@ def _repetition_statistics(
             ]
             for side in ("left", "right")
         }
-        onset = rep.get("onset_frame")
-        if onset == "":
-            onset = None
         stats.append(
             {
                 "number": number,
@@ -220,22 +216,11 @@ def _repetition_statistics(
                 "state": rep["state"],
                 "bottom": max((max(v) for v in values.values() if v), default=None),
                 "top": min((min(v) for v in values.values() if v), default=None),
-                "pull": (
-                    (int(rep["peak_frame"]) - int(onset)) / fps if onset is not None else None
-                ),
-                "lower": (
-                    None
-                    if rep["state"] == "no_extension"
-                    else (int(rep["end_frame"]) - int(rep["peak_frame"])) / fps
-                ),
+                "ascent": _float_or_none(rep.get("ascent_time_s")),
+                "descent": _float_or_none(rep.get("descent_time_s")),
             }
         )
     return stats
-
-
-def _average(values: list[float | None]) -> float | None:
-    valid = [value for value in values if value is not None]
-    return sum(valid) / len(valid) if valid else None
 
 
 def _content_crop(
@@ -304,13 +289,13 @@ def prepare_viewer_data(viewer_input: ViewerInput) -> ViewerData:
     wrist_heights = [
         h
         for points in points_by_frame.values()
-        if (h := _mean_height(points, (9, 10), config.clearance_confidence)) is not None
+        if (h := _mean_height(points, WRIST_INDICES, config.clearance_confidence)) is not None
     ]
     bar_height = statistics.median(wrist_heights) if wrist_heights else None
     frames: list[_ViewerFrame] = []
     for frame in range(total_frames):
         points = points_by_frame.get(frame, {})
-        ear_height = _mean_height(points, (3, 4), config.clearance_confidence)
+        ear_height = _mean_height(points, EAR_INDICES, config.clearance_confidence)
         angle = angles_by_frame.get(frame, {})
         left = _float_or_none(angle.get("left_elbow_deg"))
         right = _float_or_none(angle.get("right_elbow_deg"))
@@ -319,16 +304,16 @@ def prepare_viewer_data(viewer_input: ViewerInput) -> ViewerData:
             if bar_height is not None and ear_height is not None
             else None
         )
-        keypoints = [[*points[i]] if i in points else None for i in range(17)]
+        keypoints = [[*points[i]] if i in points else None for i in range(KEYPOINT_COUNT)]
         frames.append(
             {
                 "frame": frame,
-                "earsAboveBarPx": ears_above_bar,
+                "earClearancePx": ears_above_bar,
                 "leftShoulderPx": _height_above_grip(
-                    points, 5, bar_height, config.keypoint_confidence
+                    points, SHOULDER_INDICES[0], bar_height, config.keypoint_confidence
                 ),
                 "rightShoulderPx": _height_above_grip(
-                    points, 6, bar_height, config.keypoint_confidence
+                    points, SHOULDER_INDICES[1], bar_height, config.keypoint_confidence
                 ),
                 "leftElbow": left,
                 "rightElbow": right,
@@ -336,24 +321,19 @@ def prepare_viewer_data(viewer_input: ViewerInput) -> ViewerData:
             }
         )
 
-    viewer_reps = _repetition_statistics(repetitions, angles_by_frame, fps)
-    returned_reps = [rep for rep in viewer_reps if rep["state"] in ("complete", "partial")]
+    viewer_reps = _repetition_statistics(repetitions, angles_by_frame)
     return {
         "fps": fps,
         "width": width,
         "height": height,
         "crop": crop,
-        "barHeight": bar_height,
-        "thresholdAboveBar": config.clearance_threshold_px,
+        "gripHeight": bar_height,
+        "clearanceThresholdPx": config.clearance_threshold_px,
         "extensionAngle": config.extension_threshold_deg,
         "confidence": config.keypoint_confidence,
         "chart": _chart_specification(frames, config.clearance_threshold_px),
         "frames": frames,
         "repetitions": viewer_reps,
-        "averages": {
-            "pull": _average([rep["pull"] for rep in returned_reps]),
-            "lower": _average([rep["lower"] for rep in returned_reps]),
-        },
         "shoulderRange": _shoulder_range(frames),
     }
 
@@ -381,7 +361,7 @@ def save_viewer(
         "__COLOR_THRESHOLD__": colors["threshold"],
         "__COLOR_EXTENSION__": colors["extension"],
         "__COLOR_SERIES__": colors["series"],
-        "__COLOR_BAR__": colors["bar"],
+        "__COLOR_GRIP__": colors["grip"],
         "__COLOR_AXIS_TEXT__": colors["axisText"],
         "__COLOR_COMPLETE__": colors["states"]["complete"],
         "__COLOR_PARTIAL__": colors["states"]["partial"],

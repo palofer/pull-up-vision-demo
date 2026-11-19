@@ -1,6 +1,6 @@
 # Pull-Up Vision
 
-Local computer vision pipeline that analyzes pull-up video clips using **YOLO11-pose** (`COCO-17` keypoints). It counts repetitions, times concentric/eccentric phases, computes bilateral elbow angles and range of motion (ROM), estimates ear clearance relative to the grip, and exports both a self-contained interactive HTML viewer and an optional split-screen H.264 MP4 dashboard.
+Local computer vision pipeline that analyzes pull-up video clips using **YOLO11-pose** (`COCO-17` keypoints). It counts repetitions, times concentric/eccentric phases, computes bilateral elbow angles and range of motion (ROM), estimates ear clearance relative to the grip, and exports both an interactive HTML viewer (single file; the source video is referenced by relative path) and an optional split-screen H.264 MP4 dashboard.
 
 > **Disclaimer:** This project is an experimental computer vision prototype and an engineering study on monocular 2D pose estimation limits. It is not a medical assessment or a clinical biomechanics tool.
 
@@ -51,7 +51,7 @@ Each analyzed clip produces a directory under `data/processed/<clip_name>/`:
 
 ```text
 data/processed/<clip_name>/
-├── viewer.html                # Self-contained interactive HTML5 viewer (video + skeleton + live charts)
+├── viewer.html                # Interactive HTML5 viewer (skeleton + live charts over the source video)
 ├── <clip_name>-dashboard.mp4  # Optional (--export-mp4) split-screen H.264 video with audio
 ├── plots.png                  # High-resolution 3-panel static summary chart
 ├── elbow-angles.png           # Bilateral elbow angle trajectory chart
@@ -76,9 +76,11 @@ open data/processed/<clip_name>/viewer.html
 Code architecture:
 - [`src/main.py`](src/main.py) orchestrates inference, CLI parsing, and exports.
 - [`src/angles.py`](src/angles.py) computes joint angles (`arctan2`), grip clearance, repetition state transitions, and ROM/tempo metrics.
+- [`src/pose.py`](src/pose.py) holds the COCO-17 keypoint topology and naming shared across modules.
 - [`src/viewer.py`](src/viewer.py) & [`src/viewer-template.html`](src/viewer-template.html) build the zero-dependency interactive HTML viewer (with automatic lateral pillarbox cropping).
-- [`src/visual.py`](src/visual.py) renders static diagnostic plots and the H.264 split-screen MP4 video.
-- [`src/config.py`](src/config.py) holds all confidence and geometric thresholds.
+- [`src/visual.py`](src/visual.py) renders the static diagnostic plots (matplotlib PNGs).
+- [`src/render.py`](src/render.py) renders the split-screen H.264 MP4 dashboard video.
+- [`src/config.py`](src/config.py) holds all confidence and geometric thresholds, plus layout constants.
 
 ### 1. Repetition Detection & Grading
 - **Cycle Boundaries (Elbow State Machine):** A repetition arms when both elbows extend past `extension_threshold_deg` (`150°`), initiates once either elbow flexes below `initiation_threshold_deg` (`130°`), tracks peak flexion (`top`), and closes when both elbows return to extension (`≥ 150°`).
@@ -94,7 +96,7 @@ Code architecture:
 
 A central goal of this project was to evaluate whether an off-the-shelf monocular 2D pose detector (`COCO-17` keypoints) can reliably detect **subtle biomechanical technique faults**—specifically **bilateral pulling asymmetry** (one shoulder/arm dominating the concentric phase) and **mid-pull compensatory pauses**—beyond basic repetition counting and macro ROM grading.
 
-By evaluating the pipeline across multiple manually annotated sets (`34` labeled repetitions across `6` recordings covering clean sets, pause sets, and intentional asymmetry), we reached a clear empirical conclusion: **2D keypoint jitter and minor camera perspective variation exceed the signal magnitude of subtle bilateral asymmetry.**
+By evaluating the pipeline across multiple manually annotated sets (`34` labeled repetitions across `6` recordings covering clean sets, pause sets, and intentional asymmetry — labels in [`data/labels/manual-repetition-labels.csv`](data/labels/manual-repetition-labels.csv)), we reached a clear empirical conclusion: **2D keypoint jitter and minor camera perspective variation exceed the signal magnitude of subtle bilateral asymmetry.**
 
 ### Quantitative Comparison: Real Asymmetry vs. Clean Sets
 

@@ -14,7 +14,7 @@
       --canvas: #f3f4f6;
       --axis-text: __COLOR_AXIS_TEXT__;
       --blue: __COLOR_SERIES__;
-      --bar: __COLOR_BAR__;
+      --grip: __COLOR_GRIP__;
       --green: __COLOR_COMPLETE__;
       --amber: __COLOR_PARTIAL__;
       --purple: __COLOR_NO_EXTENSION__;
@@ -60,6 +60,9 @@
       padding: 12px 16px; color: var(--muted); font-size: 12px;
     }
     .summary strong { margin-left: 6px; color: var(--ink); font-size: 16px; font-weight: 740; }
+    .state-count.complete { color: var(--green); }
+    .state-count.partial { color: var(--amber); }
+    .state-count.no_extension { color: var(--purple); }
     .secondary { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
     .chart-card { min-height: 0; display: flex; flex-direction: column; padding: 12px 14px; }
     .chart-title { margin: 0; font-size: 13px; font-weight: 700; }
@@ -67,7 +70,7 @@
       color: var(--axis-text); font-size: 10px; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .swatch { width: 16px; height: 0; border-top: 2px solid var(--blue); }
-    .swatch.bar { border-top-color: var(--bar); }
+    .swatch.grip { border-top-color: var(--grip); }
     .swatch.threshold { border-top-color: var(--ink); }
     .swatch.right { border-top-color: #f59e0b; }
     .swatch.extension { border-top: 2px dashed var(--muted); }
@@ -118,14 +121,17 @@
     <aside class="panel">
       <section class="card summary">
         <span>Elbows<strong id="live-angle">—</strong></span>
-        <span>Avg. ascent<strong id="avg-pull">—</strong></span>
-        <span>Avg. descent<strong id="avg-lower">—</strong></span>
+        <span>Complete<strong id="count-complete" class="state-count complete">0</strong></span>
+        <span>Partial<strong id="count-partial" class="state-count partial">0</strong></span>
+        <span>No ext.<strong id="count-no-extension" class="state-count no_extension">0</strong></span>
+        <span>Avg. ascent<strong id="avg-ascent">—</strong></span>
+        <span>Avg. descent<strong id="avg-descent">—</strong></span>
       </section>
       <section class="card chart-card">
         <h2 class="chart-title" id="chart-title"></h2>
         <div class="chart-legend">
           <span class="legend-item"><i class="swatch"></i><span id="legend-series"></span></span>
-          <span class="legend-item"><i class="swatch bar"></i><span id="legend-bar"></span></span>
+          <span class="legend-item"><i class="swatch grip"></i><span id="legend-grip"></span></span>
           <span class="legend-item"><i class="swatch threshold"></i><span id="legend-threshold"></span></span>
         </div>
         <div class="chart-box"><canvas id="chart" aria-label="Ear height chart"></canvas></div>
@@ -197,10 +203,8 @@
     video.style.objectPosition = `${videoOffset(crop.x, DATA.width, crop.width)}% ${videoOffset(crop.y, DATA.height, crop.height)}%`;
     document.getElementById("chart-title").textContent = chartSpec.labels.title;
     document.getElementById("legend-series").textContent = chartSpec.labels.series;
-    document.getElementById("legend-bar").textContent = chartSpec.labels.bar;
+    document.getElementById("legend-grip").textContent = chartSpec.labels.grip;
     document.getElementById("legend-threshold").textContent = chartSpec.labels.threshold;
-    document.getElementById("avg-pull").textContent = formatSeconds(DATA.averages.pull);
-    document.getElementById("avg-lower").textContent = formatSeconds(DATA.averages.lower);
 
     function fitVideoCard() {
       const area = document.querySelector(".video-area");
@@ -272,16 +276,23 @@
       const plot = { left: margin.left, right: width - margin.right,
         top: margin.top, bottom: height - margin.bottom };
       const plotWidth = plot.right - plot.left, plotHeight = plot.bottom - plot.top;
-      const samples = DATA.frames.map((frame) => frame.earsAboveBarPx).filter(Number.isFinite);
-      if (!samples.length) {
+      const anySamples = DATA.frames.some((frame) => Number.isFinite(frame.earClearancePx));
+      if (!anySamples) {
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = chartColors.tickText;
         ctx.font = "12px system-ui";
         ctx.fillText("Not enough ear and wrist data.", 12, 32);
         return;
       }
-      const minY = chartSpec.yMin;
-      const maxY = chartSpec.yMax;
+      const currentFrame = frameIndex();
+      const seen = [0, DATA.clearanceThresholdPx];
+      for (let i = 0; i <= currentFrame; i += 1) {
+        const value = DATA.frames[i]?.earClearancePx;
+        if (Number.isFinite(value)) seen.push(value);
+      }
+      const rawMin = Math.min(...seen), rawMax = Math.max(...seen);
+      const pad = Math.max(8, (rawMax - rawMin) * 0.1);
+      const minY = rawMin - pad, maxY = rawMax + pad;
       const lastFrame = Math.max(1, DATA.frames.length - 1);
       const x = (frame) => plot.left + (frame / lastFrame) * plotWidth;
       const y = (value) => plot.bottom - ((value - minY) / (maxY - minY)) * plotHeight;
@@ -335,8 +346,8 @@
         ctx.strokeStyle = color; ctx.lineWidth = 1.5;
         ctx.moveTo(plot.left, y(value)); ctx.lineTo(plot.right, y(value)); ctx.stroke(); ctx.restore();
       }
-      referenceLine(0, chartColors.bar, false);
-      referenceLine(DATA.thresholdAboveBar, chartColors.threshold, false);
+      referenceLine(0, chartColors.grip, false);
+      referenceLine(DATA.clearanceThresholdPx, chartColors.threshold, false);
 
       ctx.beginPath();
       ctx.strokeStyle = chartColors.series; ctx.lineWidth = 2;
@@ -344,14 +355,14 @@
       const visibleFrame = frameIndex();
       for (let index = 0; index <= visibleFrame; index += 1) {
         const frame = DATA.frames[index];
-        const value = frame.earsAboveBarPx;
+        const value = frame.earClearancePx;
         if (!Number.isFinite(value)) { drawing = false; continue; }
         if (!drawing) { ctx.moveTo(x(index), y(value)); drawing = true; }
         else ctx.lineTo(x(index), y(value));
       }
       ctx.stroke();
 
-      const current = DATA.frames[frameIndex()]?.earsAboveBarPx;
+      const current = DATA.frames[frameIndex()]?.earClearancePx;
       if (Number.isFinite(current)) {
         ctx.beginPath(); ctx.arc(x(frameIndex()), y(current), 4, 0, 2 * Math.PI);
         ctx.fillStyle = chartColors.series; ctx.fill(); ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
@@ -359,10 +370,10 @@
       const cursorX = x(frameIndex());
       ctx.save(); ctx.beginPath(); ctx.setLineDash([3, 3]); ctx.strokeStyle = chartColors.cursor;
       ctx.moveTo(cursorX, plot.top); ctx.lineTo(cursorX, plot.bottom); ctx.stroke(); ctx.restore();
-      document.getElementById("chart-note").textContent = `0 px = grip · threshold +${DATA.thresholdAboveBar} px`;
+      document.getElementById("chart-note").textContent = `0 px = grip · threshold +${DATA.clearanceThresholdPx} px`;
     }
 
-    function drawLineChart(canvas, context, { min, max, format, series, references }) {
+    function drawLineChart(canvas, context, { min, max, format, series, references, dynamic = false }) {
       const size = sizeCanvas(canvas, context);
       if (!size) return;
       const { width, height } = size;
@@ -371,7 +382,26 @@
       const plotWidth = plot.right - plot.left, plotHeight = plot.bottom - plot.top;
       const lastFrame = Math.max(1, DATA.frames.length - 1);
       const x = (frame) => plot.left + (frame / lastFrame) * plotWidth;
-      const y = (value) => plot.bottom - ((value - min) / (max - min)) * plotHeight;
+      let yMin = min, yMax = max;
+      if (dynamic) {
+        const seen = [];
+        const currentFrame = frameIndex();
+        for (const [field] of series) {
+          for (let i = 0; i <= currentFrame; i += 1) {
+            const value = DATA.frames[i]?.[field];
+            if (Number.isFinite(value)) seen.push(value);
+          }
+        }
+        for (const ref of references) {
+          if (Number.isFinite(ref.value)) seen.push(ref.value);
+        }
+        if (seen.length) {
+          const lo = Math.min(...seen), hi = Math.max(...seen);
+          const pad = Math.max(8, (hi - lo) * 0.1);
+          yMin = lo - pad; yMax = hi + pad;
+        }
+      }
+      const y = (value) => plot.bottom - ((value - yMin) / (yMax - yMin)) * plotHeight;
       ctx.clearRect(0, 0, width, height);
 
       for (const rep of finalizedRepetitions(frameIndex())) {
@@ -386,7 +416,7 @@
       ctx.strokeStyle = chartColors.grid;
       ctx.lineWidth = 1;
       for (let tick = 0; tick <= 4; tick += 1) {
-        const value = min + ((max - min) * tick) / 4;
+        const value = yMin + ((yMax - yMin) * tick) / 4;
         ctx.beginPath(); ctx.moveTo(plot.left, y(value)); ctx.lineTo(plot.right, y(value)); ctx.stroke();
         ctx.fillStyle = chartColors.tickText;
         ctx.fillText(format(value), plot.left - 6, y(value));
@@ -433,11 +463,12 @@
     }
     function drawShoulderChart() {
       drawLineChart(shoulderChart, shoulderContext, {
-        min: DATA.shoulderRange.min,
-        max: DATA.shoulderRange.max,
+        min: 0,
+        max: 1,
+        dynamic: true,
         format: (value) => `${Math.round(value)}`,
         series: [["leftShoulderPx", COLOR_LEFT], ["rightShoulderPx", COLOR_RIGHT]],
-        references: [{ value: 0, color: chartColors.bar, dashed: false }],
+        references: [{ value: 0, color: chartColors.grip, dashed: false }],
       });
     }
 
@@ -461,7 +492,7 @@
         ["State", (rep) => statePill(rep.state)],
         ["Bottom", (rep) => formatDegrees(rep.bottom)],
         ["Top", (rep) => formatDegrees(rep.top)],
-        ["Ascent", (rep) => formatSeconds(rep.pull)],
+        ["Ascent", (rep) => formatSeconds(rep.ascent)],
       ];
       for (const [label, renderValue] of rows) {
         const row = body.insertRow();
@@ -479,6 +510,27 @@
       document.getElementById("live-angle").textContent = angles.length
         ? `${(angles.reduce((sum, value) => sum + value, 0) / angles.length).toFixed(0)}°`
         : "—";
+
+      let complete = 0, partial = 0, noExtension = 0;
+      for (const rep of reps) {
+        if (rep.state === "complete") complete += 1;
+        else if (rep.state === "partial") partial += 1;
+        else if (rep.state === "no_extension") noExtension += 1;
+      }
+      document.getElementById("count-complete").textContent = String(complete);
+      document.getElementById("count-partial").textContent = String(partial);
+      document.getElementById("count-no-extension").textContent = String(noExtension);
+
+      const returned = reps.filter((rep) => rep.state === "complete" || rep.state === "partial");
+      const ascentValues = returned.map((rep) => rep.ascent).filter(Number.isFinite);
+      const descentValues = returned.map((rep) => rep.descent).filter(Number.isFinite);
+      document.getElementById("avg-ascent").textContent = ascentValues.length
+        ? `${(ascentValues.reduce((a, b) => a + b, 0) / ascentValues.length).toFixed(2)} s`
+        : "—";
+      document.getElementById("avg-descent").textContent = descentValues.length
+        ? `${(descentValues.reduce((a, b) => a + b, 0) / descentValues.length).toFixed(2)} s`
+        : "—";
+
       document.getElementById("table-count").textContent = `${reps.length} shown`;
       if (reps.length === lastTableCount) return;
       lastTableCount = reps.length;

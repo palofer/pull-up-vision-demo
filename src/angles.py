@@ -2,15 +2,40 @@
 
 import csv
 import json
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 import numpy as np
 
 from config import DEFAULT_CONFIG, AnalysisConfig
+from pose import EAR_INDICES, SIDE_JOINTS, WRIST_INDICES, PoseFrame
 
 RepetitionState = Literal["complete", "partial", "no_extension"]
+
+
+class AngleRow(TypedDict):
+    """Per-frame bilateral elbow angles and the minimum confidence per side."""
+
+    frame: int
+    person_idx: int | str
+    left_elbow_deg: float | str
+    left_min_conf: float
+    right_elbow_deg: float | str
+    right_min_conf: float
+
+
+class HasState(Protocol):
+    """Structural type for any record carrying a repetition state (``Repetition``, viewer reps)."""
+
+    state: RepetitionState
+
+
+# Cycles that returned to extension: the only states eligible for ROM/tempo aggregates.
+RETURNED_STATES: tuple[RepetitionState, ...] = ("complete", "partial")
+
+ALL_STATES: tuple[RepetitionState, ...] = ("complete", "partial", "no_extension")
 
 
 class Repetition(TypedDict, total=False):
@@ -23,11 +48,31 @@ class Repetition(TypedDict, total=False):
     best_max_angle_deg: float
     max_clearance_px: float | None
     state: RepetitionState
-    rom_pct: float | str
-    left_rom_pct: float | str
-    right_rom_pct: float | str
-    ascent_time_s: float | str
-    descent_time_s: float | str
+    rom_pct: float | None
+    left_rom_pct: float | None
+    right_rom_pct: float | None
+    ascent_time_s: float | None
+    descent_time_s: float | None
+
+
+def count_states(repetitions: Sequence[HasState]) -> dict[RepetitionState, int]:
+    """Count cycles per state, always returning every state key."""
+    counts: dict[RepetitionState, int] = {state: 0 for state in ALL_STATES}
+    for rep in repetitions:
+        counts[rep["state"]] += 1
+    return counts
+
+
+def complete_percentage(repetitions: Sequence[HasState]) -> float | None:
+    """Complete cycles as a percentage of returned (complete + partial) cycles.
+
+    ``no_extension`` cycles are excluded from the denominator, matching the
+    glossary: they are their own category, not partials. Returns ``None`` when
+    no returned cycle exists.
+    """
+    counts = count_states(repetitions)
+    returned = counts["complete"] + counts["partial"]
+    return counts["complete"] / returned * 100.0 if returned else None
 
 
 def calculate_angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
@@ -42,18 +87,17 @@ def calculate_angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None
 
 
 def calculate_elbow_angles(
-    pose_frames: list[dict], config: AnalysisConfig = DEFAULT_CONFIG
-) -> list[dict]:
+    pose_frames: list[PoseFrame], config: AnalysisConfig = DEFAULT_CONFIG
+) -> list[AngleRow]:
     """Compute bilateral elbow angles per frame for the highest-confidence person."""
-    angles: list[dict] = []
-    sides = [("left", 5, 7, 9), ("right", 6, 8, 10)]
+    angles: list[AngleRow] = []
     for frame in pose_frames:
         row: dict[str, int | float | str] = {"frame": frame["frame"], "person_idx": ""}
         if frame["xy"].shape[0]:
             person = int(np.argmax(frame["person_conf"]))
             row["person_idx"] = person
             xy, conf = frame["xy"][person], frame["conf"][person]
-            for side, shoulder, elbow, wrist in sides:
+            for side, (shoulder, elbow, wrist) in SIDE_JOINTS.items():
                 confidence = float(np.min(conf[[shoulder, elbow, wrist]]))
                 angle = calculate_angle(xy[shoulder], xy[elbow], xy[wrist])
                 row[f"{side}_elbow_deg"] = (
@@ -65,7 +109,7 @@ def calculate_elbow_angles(
 
 
 def calculate_ear_height_above_grip(
-    pose_frames: list[dict], config: AnalysisConfig = DEFAULT_CONFIG
+    pose_frames: list[PoseFrame], config: AnalysisConfig = DEFAULT_CONFIG
 ) -> dict[int, float]:
     """Vertical distance from ears to median wrist reference (positive = ears above grip)."""
     ear_heights: dict[int, float] = {}
@@ -75,8 +119,8 @@ def calculate_ear_height_above_grip(
             continue
         person = int(np.argmax(frame["person_conf"]))
         xy, conf = frame["xy"][person], frame["conf"][person]
-        ears = [xy[i] for i in (3, 4) if conf[i] >= config.clearance_confidence]
-        wrists = [xy[i] for i in (9, 10) if conf[i] >= config.clearance_confidence]
+        ears = [xy[i] for i in EAR_INDICES if conf[i] >= config.clearance_confidence]
+        wrists = [xy[i] for i in WRIST_INDICES if conf[i] >= config.clearance_confidence]
         if ears:
             ear_heights[int(frame["frame"])] = float(np.mean([p[1] for p in ears]))
         if wrists:
@@ -88,8 +132,8 @@ def calculate_ear_height_above_grip(
 
 
 def detect_repetitions(
-    angles: list[dict],
-    pose_frames: list[dict],
+    angles: list[AngleRow],
+    pose_frames: list[PoseFrame],
     config: AnalysisConfig = DEFAULT_CONFIG,
 ) -> list[Repetition]:
     """Detect pull-up cycles from elbow flexion/extension and grade ear clearance above grip."""
@@ -165,7 +209,7 @@ def detect_repetitions(
 
 def enrich_repetition_metrics(
     repetitions: list[Repetition],
-    angles: list[dict],
+    angles: list[AngleRow],
     fps: float,
     config: AnalysisConfig = DEFAULT_CONFIG,
 ) -> list[Repetition]:
@@ -196,25 +240,35 @@ def enrich_repetition_metrics(
         rom_pct = (
             (rom_by_side["left"] + rom_by_side["right"]) / 2.0
             if len(rom_by_side) == 2
-            else ""
+            else None
         )
-        ascent_time = (int(rep["peak_frame"]) - onset) / fps if onset is not None else ""
+        ascent_time = (int(rep["peak_frame"]) - onset) / fps if onset is not None else None
         descent_time = (end - int(rep["peak_frame"])) / fps
         updated: Repetition = dict(rep)
         updated.update(
             {
                 "rom_pct": rom_pct,
-                "left_rom_pct": rom_by_side.get("left", ""),
-                "right_rom_pct": rom_by_side.get("right", ""),
+                "left_rom_pct": rom_by_side.get("left"),
+                "right_rom_pct": rom_by_side.get("right"),
                 "ascent_time_s": ascent_time,
-                "descent_time_s": "" if rep["state"] == "no_extension" else descent_time,
+                "descent_time_s": None if rep["state"] == "no_extension" else descent_time,
             }
         )
         enriched.append(updated)
     return enriched
 
 
-def save_angles_csv(angles: list[dict], path: Path) -> None:
+def _round_or_empty(value: float | None, ndigits: int) -> float | str:
+    """Round a metric for CSV output, mapping missing values to an empty cell."""
+    return round(value, ndigits) if value is not None else ""
+
+
+def _round_or_none(value: float | None, ndigits: int) -> float | None:
+    """Round a metric for JSON output, mapping missing values to ``null``."""
+    return round(value, ndigits) if value is not None else None
+
+
+def save_angles_csv(angles: list[AngleRow], path: Path) -> None:
     """Export per-frame bilateral elbow angles and keypoint confidence scores to CSV."""
     columns = [
         "frame",
@@ -256,7 +310,7 @@ def save_repetitions_csv(repetitions: list[Repetition], path: Path) -> None:
                 {
                     "start_frame": rep["start_frame"],
                     "onset_frame": (
-                        rep.get("onset_frame") if rep.get("onset_frame") is not None else ""
+                        rep["onset_frame"] if rep.get("onset_frame") is not None else ""
                     ),
                     "peak_frame": rep["peak_frame"],
                     "end_frame": rep["end_frame"],
@@ -264,41 +318,22 @@ def save_repetitions_csv(repetitions: list[Repetition], path: Path) -> None:
                     "min_right_angle_deg": round(rep["min_right_angle_deg"], 1),
                     "max_clearance_px": round(clearance, 1) if clearance is not None else "",
                     "state": rep["state"],
-                    "rom_pct": (
-                        round(float(rep["rom_pct"]), 1) if rep.get("rom_pct", "") != "" else ""
-                    ),
-                    "left_rom_pct": (
-                        round(float(rep["left_rom_pct"]), 1)
-                        if rep.get("left_rom_pct", "") != ""
-                        else ""
-                    ),
-                    "right_rom_pct": (
-                        round(float(rep["right_rom_pct"]), 1)
-                        if rep.get("right_rom_pct", "") != ""
-                        else ""
-                    ),
-                    "ascent_time_s": (
-                        round(float(rep["ascent_time_s"]), 2)
-                        if rep.get("ascent_time_s", "") != ""
-                        else ""
-                    ),
-                    "descent_time_s": (
-                        round(float(rep["descent_time_s"]), 2)
-                        if rep.get("descent_time_s", "") != ""
-                        else ""
-                    ),
+                    "rom_pct": _round_or_empty(rep.get("rom_pct"), 1),
+                    "left_rom_pct": _round_or_empty(rep.get("left_rom_pct"), 1),
+                    "right_rom_pct": _round_or_empty(rep.get("right_rom_pct"), 1),
+                    "ascent_time_s": _round_or_empty(rep.get("ascent_time_s"), 2),
+                    "descent_time_s": _round_or_empty(rep.get("descent_time_s"), 2),
                 }
             )
 
 
 def build_summary_metrics(repetitions: list[Repetition], video_name: str) -> dict[str, object]:
-    """Compute aggregate counts and average ROM/tempo across completed repetitions."""
-    states: tuple[RepetitionState, ...] = ("complete", "partial", "no_extension")
-    by_state = {state: sum(rep["state"] == state for rep in repetitions) for state in states}
-    returned_reps = [rep for rep in repetitions if rep["state"] in ("complete", "partial")]
+    """Aggregate counts and average ROM/tempo across returned (complete + partial) cycles."""
+    by_state = count_states(repetitions)
+    returned_reps = [rep for rep in repetitions if rep["state"] in RETURNED_STATES]
 
     def _mean(field: str, decimals: int) -> float | None:
-        values = [float(rep[field]) for rep in returned_reps if rep.get(field, "") != ""]
+        values = [float(rep[field]) for rep in returned_reps if rep.get(field) is not None]
         return round(sum(values) / len(values), decimals) if values else None
 
     return {
@@ -356,29 +391,11 @@ def save_summary_json(
                 "min_left_angle_deg": round(rep["min_left_angle_deg"], 1),
                 "min_right_angle_deg": round(rep["min_right_angle_deg"], 1),
                 "max_clearance_px": round(clearance, 1) if clearance is not None else None,
-                "rom_pct": (
-                    round(float(rep["rom_pct"]), 1) if rep.get("rom_pct", "") != "" else None
-                ),
-                "left_rom_pct": (
-                    round(float(rep["left_rom_pct"]), 1)
-                    if rep.get("left_rom_pct", "") != ""
-                    else None
-                ),
-                "right_rom_pct": (
-                    round(float(rep["right_rom_pct"]), 1)
-                    if rep.get("right_rom_pct", "") != ""
-                    else None
-                ),
-                "ascent_time_s": (
-                    round(float(rep["ascent_time_s"]), 2)
-                    if rep.get("ascent_time_s", "") != ""
-                    else None
-                ),
-                "descent_time_s": (
-                    round(float(rep["descent_time_s"]), 2)
-                    if rep.get("descent_time_s", "") != ""
-                    else None
-                ),
+                "rom_pct": _round_or_none(rep.get("rom_pct"), 1),
+                "left_rom_pct": _round_or_none(rep.get("left_rom_pct"), 1),
+                "right_rom_pct": _round_or_none(rep.get("right_rom_pct"), 1),
+                "ascent_time_s": _round_or_none(rep.get("ascent_time_s"), 2),
+                "descent_time_s": _round_or_none(rep.get("descent_time_s"), 2),
             }
         )
     payload = {

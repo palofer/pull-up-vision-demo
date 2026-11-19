@@ -9,6 +9,7 @@ import cv2
 from ultralytics import YOLO
 
 from angles import (
+    AngleRow,
     Repetition,
     calculate_elbow_angles,
     detect_repetitions,
@@ -19,9 +20,10 @@ from angles import (
     save_summary_json,
 )
 from config import DEFAULT_CONFIG, AnalysisConfig
+from pose import KEYPOINT_NAMES, PoseFrame
+from render import save_dashboard_mp4
 from viewer import ViewerInput, save_viewer
 from visual import (
-    save_dashboard_mp4,
     save_elbow_angles_chart,
     save_shoulder_position_chart,
     save_summary_plots,
@@ -31,26 +33,6 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW_DATA_DIR = ROOT / "data/raw"
 PROCESSED_DATA_DIR = ROOT / "data/processed"
 DEFAULT_WEIGHTS = "yolo11m-pose.pt"
-
-COCO_KEYPOINT_NAMES = {
-    0: "nose",
-    1: "left_eye",
-    2: "right_eye",
-    3: "left_ear",
-    4: "right_ear",
-    5: "left_shoulder",
-    6: "right_shoulder",
-    7: "left_elbow",
-    8: "right_elbow",
-    9: "left_wrist",
-    10: "right_wrist",
-    11: "left_hip",
-    12: "right_hip",
-    13: "left_knee",
-    14: "right_knee",
-    15: "left_ankle",
-    16: "right_ankle",
-}
 
 
 def get_video_fps(video: Path) -> float:
@@ -65,7 +47,7 @@ def get_video_fps(video: Path) -> float:
         capture.release()
 
 
-def save_keypoints_csv(pose_frames: list[dict], path: Path) -> None:
+def save_keypoints_csv(pose_frames: list[PoseFrame], path: Path) -> None:
     """Export per-frame COCO-17 keypoint coordinates and confidence scores to CSV."""
     columns = [
         "frame",
@@ -90,7 +72,7 @@ def save_keypoints_csv(pose_frames: list[dict], path: Path) -> None:
                             "frame": frame["frame"],
                             "person_idx": person,
                             "keypoint_idx": index,
-                            "keypoint": COCO_KEYPOINT_NAMES.get(index, f"keypoint_{index}"),
+                            "keypoint": KEYPOINT_NAMES.get(index, f"keypoint_{index}"),
                             "x_px": float(xy[0]),
                             "y_px": float(xy[1]),
                             "keypoint_conf": float(confidence),
@@ -125,7 +107,7 @@ def run_pipeline(
     weights: str | Path = DEFAULT_WEIGHTS,
     config: AnalysisConfig = DEFAULT_CONFIG,
     export_mp4: bool = False,
-) -> tuple[list[dict], list[dict], list[Repetition], dict[str, Path]]:
+) -> tuple[list[PoseFrame], list[AngleRow], list[Repetition], dict[str, Path]]:
     """Run YOLO11-pose inference, repetition grading, and visual artifact generation."""
     video_path = resolve_input_video(video)
     fps = get_video_fps(video_path)
@@ -147,7 +129,7 @@ def run_pipeline(
         "viewer": output_dir / "viewer.html",
     }
 
-    pose_frames: list[dict] = []
+    pose_frames: list[PoseFrame] = []
     for frame_idx, result in enumerate(model(str(video_path), stream=True, verbose=False)):
         pose = result.keypoints
         pose_frames.append(

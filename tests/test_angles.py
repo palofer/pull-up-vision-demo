@@ -8,7 +8,9 @@ from src.angles import calculate_angle, calculate_ear_height_above_grip
 def mock_pose_data():
     """Build minimal 17-keypoint COCO pose payloads for unit testing."""
 
-    def _builder(keypoints_by_idx: dict[int, tuple[list[float], float]], frame_id: int = 0):
+    def _builder(
+        keypoints_by_idx: dict[int, tuple[list[float], float]], frame_id: int = 0
+    ) -> list[dict]:
         xy = np.zeros((1, 17, 2), dtype=np.float32)
         conf = np.zeros((1, 17), dtype=np.float32)
         for idx, (coords, confidence) in keypoints_by_idx.items():
@@ -158,7 +160,7 @@ def test_detect_and_enrich_repetitions_complete_partial_and_no_extension(mock_po
     assert enriched[1]["descent_time_s"] == pytest.approx(0.2)
 
     # Rep 3: no_extension has no descent time
-    assert enriched[2]["descent_time_s"] == ""
+    assert enriched[2]["descent_time_s"] is None
 
     summary = build_summary_metrics(enriched, "sample.mp4")
     assert summary["total_repetitions"] == 3
@@ -167,6 +169,23 @@ def test_detect_and_enrich_repetitions_complete_partial_and_no_extension(mock_po
     assert summary["no_extension_repetitions"] == 1
     assert summary["avg_ascent_time_s"] == pytest.approx(0.2)
     assert summary["avg_descent_time_s"] == pytest.approx(0.2)
+
+
+def test_count_states_and_complete_percentage_exclude_no_extension():
+    from src.angles import complete_percentage, count_states
+
+    reps = [
+        {"state": "complete"},
+        {"state": "partial"},
+        {"state": "no_extension"},
+        {"state": "complete"},
+    ]
+    assert count_states(reps) == {"complete": 2, "partial": 1, "no_extension": 1}
+    assert complete_percentage(reps) == pytest.approx(2 / 3 * 100.0)
+
+    only_no_extension = [{"state": "no_extension"}]
+    assert complete_percentage(only_no_extension) is None
+    assert complete_percentage([]) is None
 
 
 def test_prepare_viewer_data_maps_frames_and_repetitions(tmp_path):
@@ -265,7 +284,7 @@ def test_prepare_viewer_data_maps_frames_and_repetitions(tmp_path):
 
     assert payload["fps"] == pytest.approx(10.0)
     assert len(payload["frames"]) == 5
-    assert payload["frames"][2]["earsAboveBarPx"] == pytest.approx(30.0)
+    assert payload["frames"][2]["earClearancePx"] == pytest.approx(30.0)
     assert len(payload["repetitions"]) == 1
     assert payload["repetitions"][0]["state"] == "complete"
     assert payload["repetitions"][0]["top"] == pytest.approx(55.0)
