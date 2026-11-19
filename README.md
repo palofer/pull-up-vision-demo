@@ -1,5 +1,7 @@
 # Pull-Up Vision
 
+**Español** | [English](README.en.md)
+
 Prototipo local para analizar vídeos de dominadas. Usa **YOLO11-pose** para estimar los puntos del cuerpo y, a partir de ellos, calcular ángulos de codo, detectar ciclos y generar un visor con resultados.
 
 ![Vista previa del panel](readme_images/dashboard-preview.png)
@@ -31,7 +33,7 @@ La primera vez se descargan automáticamente los pesos `yolo11m-pose.pt`. Puedes
 
 ## Qué hace
 
-YOLO-pose estima hasta 17 puntos del cuerpo por fotograma; no detecta la barra ni la barbilla. El proyecto calcula los ángulos de los codos y usa sus cambios para detectar los ciclos. Para clasificar una repetición, compara la altura de las orejas —una aproximación de la barbilla— con una referencia estimada a partir de las muñecas:
+YOLO-pose estima hasta 17 puntos del cuerpo por fotograma; no detecta la barra ni la barbilla. El proyecto calcula los ángulos de los codos y usa sus cambios para detectar los ciclos. Para clasificar una repetición, compara la altura de las orejas, que es el punto mas aproximado de la barbilla, con una referencia estimada a partir de las muñecas:
 
 - **`complete`**: el ciclo vuelve a extensión y las orejas superan la referencia al menos 25 píxeles.
 - **`partial`**: vuelve a extensión, pero no alcanza esa altura.
